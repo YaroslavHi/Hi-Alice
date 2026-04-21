@@ -1,0 +1,16 @@
+process.env['NODE_ENV']               = 'test';
+process.env['DATABASE_URL']           = 'postgresql://test:test@localhost/test';
+process.env['REDIS_URL']              = 'redis://localhost:6379';
+process.env['YANDEX_CLIENT_ID']       = 'yandex-client-id';
+process.env['YANDEX_CLIENT_SECRET']   = 'yandex-secret-16-plus-chars';
+process.env['HI_LOGIN_URL']           = 'http://hi.example.com/login';
+process.env['SERVICE_BASE_URL']       = 'http://alice.example.com';
+// 64 hex chars = 32 bytes each
+process.env['TOKEN_ENCRYPTION_KEY']   = 'a'.repeat(64);
+process.env['TOKEN_HMAC_KEY']         = 'b'.repeat(64);
+process.env['P4_RELAY_URL']           = 'http://relay.internal';
+process.env['P4_RELAY_TOKEN']         = 'relay-token-longer-than-16-chars';
+process.env['ACCESS_TOKEN_TTL_SECONDS']  = '2592000';
+process.env['REFRESH_TOKEN_TTL_SECONDS'] = '7776000';
+process.env['AUTH_CODE_TTL_SECONDS']     = '600';
+process.env['NOTIFICATION_DEDUP_TTL_SECONDS'] = '30';

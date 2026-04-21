@@ -1,0 +1,75 @@
+version: "3.9"
+
+services:
+  alice-adapter:
+    build: .
+    container_name: alice-adapter
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV:      production
+      LOG_LEVEL:     info
+      DATABASE_URL:  postgresql://alice_svc:${POSTGRES_PASSWORD}@postgres:5432/hi_cloud
+      REDIS_URL:     redis://redis:6379
+      # OAuth and secrets — set in .env
+      YANDEX_CLIENT_ID:     ${YANDEX_CLIENT_ID}
+      YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET}
+      HI_LOGIN_URL:         ${HI_LOGIN_URL}
+      SERVICE_BASE_URL:     ${SERVICE_BASE_URL}
+      TOKEN_PEPPER:         ${TOKEN_PEPPER}
+      P4_RELAY_URL:         ${P4_RELAY_URL}
+      P4_RELAY_TOKEN:       ${P4_RELAY_TOKEN}
+      ACCESS_TOKEN_TTL_SECONDS:  2592000
+      REFRESH_TOKEN_TTL_SECONDS: 7776000
+      AUTH_CODE_TTL_SECONDS:     600
+      RATE_LIMIT_MAX:       100
+      RATE_LIMIT_WINDOW_MS: 60000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - alice-net
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: alice-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     alice_svc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       hi_cloud
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alice_svc -d hi_cloud"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+    networks:
+      - alice-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: alice-redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+    networks:
+      - alice-net
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  alice-net:
+    driver: bridge
