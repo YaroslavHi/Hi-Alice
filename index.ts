@@ -1,33 +1,20 @@
-/**
- * @module index
- * Entry point: load env, build app, start notification worker, serve.
- */
-import 'dotenv/config';
-import { env }      from './config/env.js';
-import { buildApp } from './app.js';
-import { startNotificationWorker } from './services/notification.service.js';
+import type { FastifyInstance } from 'fastify';
+import { registerHealthRoutes }    from '../controllers/health.controller.js';
+import { registerOAuthRoutes }     from '../controllers/oauth.controller.js';
+import { registerUnlinkRoutes }    from '../controllers/unlink.controller.js';
+import { registerDiscoveryRoutes } from '../controllers/discovery.controller.js';
+import { registerQueryRoutes }     from '../controllers/query.controller.js';
+import { registerActionRoutes }    from '../controllers/action.controller.js';
+import { registerP4WebhookRoutes } from '../controllers/p4-webhook.controller.js';
+import { registerMetricsRoutes }   from '../controllers/metrics.controller.js';
 
-async function main(): Promise<void> {
-  const app = await buildApp();
-
-  // A5: start background notification queue worker.
-  const workerAbort = new AbortController();
-  startNotificationWorker(app, workerAbort.signal);
-
-  const shutdown = async (signal: string): Promise<void> => {
-    app.log.info({ signal }, 'Shutdown signal received');
-    workerAbort.abort();
-    try { await app.close(); process.exit(0); }
-    catch (err) { app.log.error({ err }, 'Shutdown error'); process.exit(1); }
-  };
-
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT',  () => shutdown('SIGINT'));
-  process.on('uncaughtException',   (err)    => { app.log.fatal({ err }, 'Uncaught exception');  process.exit(1); });
-  process.on('unhandledRejection',  (reason) => { app.log.fatal({ reason }, 'Unhandled rejection'); process.exit(1); });
-
-  try { await app.listen({ port: env.PORT, host: env.HOST }); }
-  catch (err) { app.log.fatal({ err }, 'Failed to start'); process.exit(1); }
+export async function registerRoutes(app: FastifyInstance): Promise<void> {
+  await registerHealthRoutes(app);    // GET|HEAD /v1.0
+  await registerOAuthRoutes(app);     // /oauth/*
+  await registerDiscoveryRoutes(app); // A3: GET  /v1.0/user/devices
+  await registerQueryRoutes(app);     // A4: POST /v1.0/user/devices/query
+  await registerActionRoutes(app);    // A4: POST /v1.0/user/devices/action
+  await registerUnlinkRoutes(app);    // A2: POST /v1.0/user/unlink
+  await registerP4WebhookRoutes(app); // A5: POST /internal/p4/*
+  await registerMetricsRoutes(app);   // A7: GET  /metrics
 }
-
-main();
