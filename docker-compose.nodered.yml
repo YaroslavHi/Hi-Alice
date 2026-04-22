@@ -1,0 +1,61 @@
+# Docker Compose overlay — Node-RED P4 relay + local MQTT broker
+#
+# Used when the P4 relay is Node-RED bridging to a real SmartBox controller
+# over MQTT. In production this runs alongside the base docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.nodered.yml up -d
+#
+# Set in .env:
+#   P4_RELAY_URL=http://nodered:1880
+#   P4_RELAY_TOKEN=hi-relay-token-CHANGE_ME
+#
+# Node-RED configuration files live in nodered/ (see nodered/README.md).
+
+services:
+  nodered:
+    image: nodered/node-red:latest
+    container_name: nodered
+    restart: unless-stopped
+    volumes:
+      - nodered-data:/data
+      - ./nodered/flows.json:/data/flows.json:ro
+      - ./nodered/settings.js:/data/settings.js:ro
+    ports:
+      - "1880:1880"
+    environment:
+      NODE_RED_CREDENTIAL_SECRET: ${NODE_RED_CREDENTIAL_SECRET:-}
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:1880/', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - alice-net
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    restart: unless-stopped
+    volumes:
+      - ./nodered/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+    ports:
+      - "1883:1883"
+    networks:
+      - alice-net
+
+  mock-p4:
+    image: node:20-alpine
+    container_name: mock-p4
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - /opt/mock-p4:/app
+    command: node server.js
+    networks:
+      - alice-net
+
+volumes:
+  nodered-data:
+  mosquitto-data:

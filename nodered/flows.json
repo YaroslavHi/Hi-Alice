@@ -1,0 +1,441 @@
+[
+  {
+    "id": "tab-monitor",
+    "type": "tab",
+    "label": "MQTT Monitor",
+    "disabled": false
+  },
+  {
+    "id": "mqtt-broker-1",
+    "type": "mqtt-broker",
+    "name": "mymqtt.ru (real)",
+    "broker": "mymqtt.ru",
+    "port": "8883",
+    "clientid": "nodered-monitor",
+    "autoConnect": true,
+    "usetls": true,
+    "protocolVersion": "4",
+    "keepalive": "60",
+    "cleansession": true,
+    "tls": "tls-mymqtt"
+  },
+  {
+    "id": "mqtt-in-all",
+    "type": "mqtt in",
+    "z": "tab-monitor",
+    "name": "demo/v1/server/devices/# (all)",
+    "topic": "demo/v1/server/devices/#",
+    "qos": "0",
+    "datatype": "auto-detect",
+    "broker": "mqtt-broker-1",
+    "x": 180,
+    "y": 80,
+    "wires": [
+      [
+        "debug-raw",
+        "fn-format"
+      ]
+    ]
+  },
+  {
+    "id": "debug-raw",
+    "type": "debug",
+    "z": "tab-monitor",
+    "name": "Raw MQTT",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "true",
+    "targetType": "full",
+    "x": 420,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "fn-format",
+    "type": "function",
+    "z": "tab-monitor",
+    "name": "Format log",
+    "func": "// topic: demo/v1/server/devices/{device_id}/{field}\nconst parts = msg.topic.split('/');\nconst deviceId = parts[4] || '?';\nconst field = parts[5] || '?';\nmsg.payload = { deviceId, field, value: msg.payload, t: new Date().toISOString() };\nreturn msg;",
+    "outputs": 1,
+    "x": 410,
+    "y": 100,
+    "wires": [
+      [
+        "debug-formatted"
+      ]
+    ]
+  },
+  {
+    "id": "debug-formatted",
+    "type": "debug",
+    "z": "tab-monitor",
+    "name": "Parsed",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "x": 600,
+    "y": 100,
+    "wires": []
+  },
+  {
+    "id": "tab-tester",
+    "type": "tab",
+    "label": "State-Change Tester",
+    "disabled": false
+  },
+  {
+    "id": "inject-relay01-on",
+    "type": "inject",
+    "z": "tab-tester",
+    "name": "relay-01 ON",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "payload": "{\"house_id\":\"sb-TEST01\",\"yandex_user_id\":\"test-yandex-uid\",\"logical_device_id\":\"relay-01\",\"kind\":\"relay\",\"online\":true,\"properties\":[{\"key\":\"on\",\"value\":true,\"updated_at\":\"2024-01-01T00:00:00Z\"}]}",
+    "payloadType": "json",
+    "topic": "",
+    "x": 140,
+    "y": 80,
+    "wires": [
+      [
+        "fn-set-token"
+      ]
+    ]
+  },
+  {
+    "id": "inject-relay01-off",
+    "type": "inject",
+    "z": "tab-tester",
+    "name": "relay-01 OFF",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "payload": "{\"house_id\":\"sb-TEST01\",\"yandex_user_id\":\"test-yandex-uid\",\"logical_device_id\":\"relay-01\",\"kind\":\"relay\",\"online\":true,\"properties\":[{\"key\":\"on\",\"value\":false,\"updated_at\":\"2024-01-01T00:00:00Z\"}]}",
+    "payloadType": "json",
+    "topic": "",
+    "x": 140,
+    "y": 140,
+    "wires": [
+      [
+        "fn-set-token"
+      ]
+    ]
+  },
+  {
+    "id": "inject-dimmer-50",
+    "type": "inject",
+    "z": "tab-tester",
+    "name": "dimmer-01 brightness=50",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "payload": "{\"house_id\":\"sb-TEST01\",\"yandex_user_id\":\"test-yandex-uid\",\"logical_device_id\":\"dimmer-01\",\"kind\":\"dimmer\",\"online\":true,\"properties\":[{\"key\":\"on\",\"value\":true,\"updated_at\":\"2024-01-01T00:00:00Z\"},{\"key\":\"brightness\",\"value\":50,\"updated_at\":\"2024-01-01T00:00:00Z\"}]}",
+    "payloadType": "json",
+    "topic": "",
+    "x": 160,
+    "y": 200,
+    "wires": [
+      [
+        "fn-set-token"
+      ]
+    ]
+  },
+  {
+    "id": "inject-curtain-100",
+    "type": "inject",
+    "z": "tab-tester",
+    "name": "curtain-01 open=100",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "payload": "{\"house_id\":\"sb-TEST01\",\"yandex_user_id\":\"test-yandex-uid\",\"logical_device_id\":\"curtain-01\",\"kind\":\"curtains\",\"online\":true,\"properties\":[{\"key\":\"on\",\"value\":true,\"updated_at\":\"2024-01-01T00:00:00Z\"},{\"key\":\"position\",\"value\":100,\"updated_at\":\"2024-01-01T00:00:00Z\"}]}",
+    "payloadType": "json",
+    "topic": "",
+    "x": 160,
+    "y": 260,
+    "wires": [
+      [
+        "fn-set-token"
+      ]
+    ]
+  },
+  {
+    "id": "fn-set-token",
+    "type": "function",
+    "z": "tab-tester",
+    "name": "Set headers",
+    "func": "msg.headers = {\n  'Authorization': 'Bearer hi-relay-token-test-2024',\n  'Content-Type': 'application/json',\n  'X-Request-Id': 'nr-test-' + Date.now()\n};\nmsg.method = 'POST';\nmsg.url = 'http://alice-adapter:3000/internal/p4/state-change';\nreturn msg;",
+    "outputs": 1,
+    "x": 390,
+    "y": 170,
+    "wires": [
+      [
+        "http-post-sc"
+      ]
+    ]
+  },
+  {
+    "id": "http-post-sc",
+    "type": "http request",
+    "z": "tab-tester",
+    "name": "POST /internal/p4/state-change",
+    "method": "use",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "authType": "",
+    "x": 640,
+    "y": 170,
+    "wires": [
+      [
+        "debug-response"
+      ]
+    ]
+  },
+  {
+    "id": "debug-response",
+    "type": "debug",
+    "z": "tab-tester",
+    "name": "Response",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "x": 870,
+    "y": 170,
+    "wires": []
+  },
+  {
+    "id": "note-tester",
+    "type": "comment",
+    "z": "tab-tester",
+    "name": "Simulates P4 device state-change -> alice-adapter -> Yandex notification",
+    "info": "Needs YANDEX_SKILL_ID + YANDEX_SKILL_OAUTH_TOKEN in .env",
+    "x": 440,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "tab-p4relay",
+    "type": "tab",
+    "label": "Real Controller Relay",
+    "disabled": false
+  },
+  {
+    "id": "mqtt-broker-real",
+    "type": "mqtt-broker",
+    "name": "mymqtt.ru (relay)",
+    "broker": "mymqtt.ru",
+    "port": "8883",
+    "clientid": "nodered-p4relay",
+    "autoConnect": true,
+    "usetls": true,
+    "protocolVersion": "4",
+    "keepalive": "60",
+    "cleansession": false,
+    "tls": "tls-mymqtt"
+  },
+  {
+    "id": "mqtt-in-state-real",
+    "type": "mqtt in",
+    "z": "tab-p4relay",
+    "name": "All state from controller",
+    "topic": "demo/v1/server/devices/#",
+    "qos": "1",
+    "datatype": "utf8",
+    "broker": "mqtt-broker-real",
+    "x": 200,
+    "y": 60,
+    "wires": [
+      [
+        "fn-cache-state"
+      ]
+    ]
+  },
+  {
+    "id": "fn-cache-state",
+    "type": "function",
+    "z": "tab-p4relay",
+    "name": "Cache state",
+    "func": "// topic: demo/v1/server/devices/{device_id}/{field}\nconst parts = msg.topic.split('/');\nconst deviceId = parts[4];\nconst field    = parts[5];\nif (!deviceId || !field) return null;\n\nconst cache = flow.get('mqttState') || {};\nif (!cache[deviceId]) cache[deviceId] = { _updated: new Date().toISOString() };\n\nif (field === 'State') {\n  cache[deviceId].on = (msg.payload === 'True' || msg.payload === 'true' || msg.payload === true);\n} else if (field === 'TemperatureValue') {\n  const t = parseFloat(msg.payload);\n  if (!isNaN(t)) cache[deviceId].temperature = t;\n} else if (field === 'HumidityValue') {\n  const h = parseFloat(msg.payload);\n  if (!isNaN(h)) cache[deviceId].humidity = h;\n} else {\n  cache[deviceId][field] = msg.payload;\n}\ncache[deviceId]._updated = new Date().toISOString();\nflow.set('mqttState', cache);\nreturn null;",
+    "outputs": 1,
+    "x": 480,
+    "y": 60,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "http-in-inventory",
+    "type": "http in",
+    "z": "tab-p4relay",
+    "name": "GET /internal/v1/houses/:house_id/devices",
+    "url": "/internal/v1/houses/:house_id/devices",
+    "method": "get",
+    "upload": false,
+    "x": 230,
+    "y": 160,
+    "wires": [
+      [
+        "fn-inventory"
+      ]
+    ]
+  },
+  {
+    "id": "fn-inventory",
+    "type": "function",
+    "z": "tab-p4relay",
+    "name": "Auth + inventory",
+    "func": "const auth = msg.req.headers['authorization'] || '';\nif (auth !== 'Bearer hi-relay-token-test-2024') {\n  msg.statusCode = 401;\n  msg.payload = { error: 'Unauthorized' };\n  return msg;\n}\nconst houseId = msg.req.params.house_id;\nmsg.payload = {\n  house_id: houseId,\n  version: 1,\n  fetched_at: new Date().toISOString(),\n  devices: [\n    {\n      logical_device_id: 'switch_903858',\n      kind: 'relay',\n      semantics: 'light',\n      name: 'Офисный свет',\n      room: 'Офис',\n      online: true,\n      board_id: 'real-controller-01'\n    },\n    {\n      logical_device_id: 'ds18b20_155881',\n      kind: 'ds18b20',\n      name: 'Температура в офисе',\n      room: 'Офис',\n      online: true,\n      board_id: 'real-controller-01'\n    },\n    {\n      logical_device_id: 'ds18b20_959340',\n      kind: 'ds18b20',\n      name: 'Температура (доп. датчик)',\n      room: 'Офис',\n      online: true,\n      board_id: 'real-controller-01'\n    },\n    {\n      logical_device_id: 'shtanddht_509766',\n      kind: 'dht_temp',\n      name: 'Климат в офисе',\n      room: 'Офис',\n      online: true,\n      board_id: 'real-controller-01'\n    }\n  ]\n};\nreturn msg;",
+    "outputs": 1,
+    "x": 530,
+    "y": 160,
+    "wires": [
+      [
+        "http-out"
+      ]
+    ]
+  },
+  {
+    "id": "http-in-state",
+    "type": "http in",
+    "z": "tab-p4relay",
+    "name": "POST /internal/v1/houses/:house_id/devices/state",
+    "url": "/internal/v1/houses/:house_id/devices/state",
+    "method": "post",
+    "upload": false,
+    "x": 250,
+    "y": 260,
+    "wires": [
+      [
+        "fn-state"
+      ]
+    ]
+  },
+  {
+    "id": "fn-state",
+    "type": "function",
+    "z": "tab-p4relay",
+    "name": "Auth + state query",
+    "func": "const auth = msg.req.headers['authorization'] || '';\nif (auth !== 'Bearer hi-relay-token-test-2024') {\n  msg.statusCode = 401;\n  msg.payload = { error: 'Unauthorized' };\n  return msg;\n}\nconst houseId = msg.req.params.house_id;\nconst { device_ids = [] } = msg.payload || {};\nconst mqttState = flow.get('mqttState') || {};\nconst now = new Date().toISOString();\n\nconst KIND = {\n  'switch_903858':   'relay',\n  'ds18b20_155881':  'ds18b20',\n  'ds18b20_959340':  'ds18b20',\n  'shtanddht_509766': 'dht_temp'\n};\n\nmsg.payload = {\n  house_id: houseId,\n  fetched_at: now,\n  devices: device_ids.map(id => {\n    const s = mqttState[id];\n    const kind = KIND[id] || 'relay';\n    const online = !!s;\n    const updated = s ? s._updated : now;\n    let properties = [];\n\n    if (kind === 'relay') {\n      const on = s ? (s.on === true) : false;\n      properties = [{ key: 'on', value: on, updated_at: updated }];\n    } else if (kind === 'ds18b20') {\n      const temp = s && s.temperature !== undefined ? s.temperature : null;\n      if (temp !== null) {\n        properties = [{ key: 'temperature', value: temp, updated_at: updated }];\n      }\n    } else if (kind === 'dht_temp') {\n      if (s && s.temperature !== undefined) {\n        properties.push({ key: 'temperature', value: s.temperature, updated_at: updated });\n      }\n      if (s && s.humidity !== undefined) {\n        properties.push({ key: 'humidity', value: s.humidity, updated_at: updated });\n      }\n    }\n\n    return { logical_device_id: id, online, properties };\n  })\n};\nreturn msg;",
+    "outputs": 1,
+    "x": 530,
+    "y": 260,
+    "wires": [
+      [
+        "http-out"
+      ]
+    ]
+  },
+  {
+    "id": "http-in-action",
+    "type": "http in",
+    "z": "tab-p4relay",
+    "name": "POST /internal/v1/houses/:house_id/devices/action",
+    "url": "/internal/v1/houses/:house_id/devices/action",
+    "method": "post",
+    "upload": false,
+    "x": 250,
+    "y": 360,
+    "wires": [
+      [
+        "fn-action"
+      ]
+    ]
+  },
+  {
+    "id": "fn-action",
+    "type": "function",
+    "z": "tab-p4relay",
+    "name": "Auth + action → MQTT",
+    "func": "const auth = msg.req.headers['authorization'] || '';\nif (auth !== 'Bearer hi-relay-token-test-2024') {\n  msg.statusCode = 401;\n  msg.payload = { error: 'Unauthorized' };\n  return [msg, null];\n}\nconst intent = msg.payload || {};\nconst houseId = msg.req.params.house_id;\nconst deviceId = intent.device_id;\nconst property = intent.property;\nconst value = intent.value;\n\n// Debounce: drop duplicate commands within 150ms per device\nconst debounceKey = 'debounce_' + deviceId;\nconst lastTs = context.get(debounceKey) || 0;\nconst now = Date.now();\nif (now - lastTs < 150) {\n  // Too soon — drop silently, return success response without publishing\n  node.warn('Debounced action for ' + deviceId + ' (' + (now - lastTs) + 'ms)');\n  msg.payload = {\n    status: 'ok',\n    request_id: intent.request_id || '',\n    house_id: houseId,\n    device_id: deviceId\n  };\n  return [msg, null];\n}\ncontext.set(debounceKey, now);\n\n// Convert boolean → controller string format\nlet mqttPayload;\nif (property === 'on') {\n  mqttPayload = value ? 'True' : 'False';\n} else {\n  mqttPayload = String(value);\n}\n\nconst mqttMsg = {\n  topic: 'demo/v1/client/devices/' + deviceId + '/State',\n  payload: mqttPayload,\n  qos: 1,\n  retain: false\n};\n\nnode.warn('Action → MQTT: ' + mqttMsg.topic + ' = ' + mqttPayload);\n\nmsg.payload = {\n  status: 'ok',\n  request_id: intent.request_id || '',\n  house_id: houseId,\n  device_id: deviceId\n};\nreturn [msg, mqttMsg];",
+    "outputs": 2,
+    "x": 530,
+    "y": 360,
+    "wires": [
+      [
+        "http-out"
+      ],
+      [
+        "mqtt-out-action"
+      ]
+    ]
+  },
+  {
+    "id": "mqtt-out-action",
+    "type": "mqtt out",
+    "z": "tab-p4relay",
+    "name": "→ demo/v1/client/devices/{id}/State",
+    "topic": "",
+    "qos": "1",
+    "retain": "false",
+    "broker": "mqtt-broker-real",
+    "x": 790,
+    "y": 400,
+    "wires": []
+  },
+  {
+    "id": "http-out",
+    "type": "http response",
+    "z": "tab-p4relay",
+    "name": "HTTP Response",
+    "statusCode": "",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "x": 790,
+    "y": 280,
+    "wires": []
+  },
+  {
+    "id": "note-real",
+    "type": "comment",
+    "z": "tab-p4relay",
+    "name": "Set P4_RELAY_URL=http://nodered:1880 in .env then force-recreate alice-adapter",
+    "info": "Read:  demo/v1/server/devices/+/State (True|False)\nWrite: demo/v1/client/devices/{id}/State (True|False)\nPort: 1883",
+    "x": 490,
+    "y": 460,
+    "wires": []
+  },
+  {
+    "id": "tls-mymqtt",
+    "type": "tls-config",
+    "name": "mymqtt.ru (self-signed)",
+    "cert": "",
+    "key": "",
+    "ca": "",
+    "certname": "",
+    "keyname": "",
+    "caname": "",
+    "servername": "",
+    "verifyservercert": false
+  }
+]

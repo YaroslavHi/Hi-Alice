@@ -1,35 +1,22 @@
-version: "3.9"
-
 services:
   alice-adapter:
     build: .
     container_name: alice-adapter
     restart: unless-stopped
+    env_file: .env
     ports:
       - "3000:3000"
-    environment:
-      NODE_ENV:      production
-      LOG_LEVEL:     info
-      DATABASE_URL:  postgresql://alice_svc:${POSTGRES_PASSWORD}@postgres:5432/hi_cloud
-      REDIS_URL:     redis://redis:6379
-      # OAuth and secrets — set in .env
-      YANDEX_CLIENT_ID:     ${YANDEX_CLIENT_ID}
-      YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET}
-      HI_LOGIN_URL:         ${HI_LOGIN_URL}
-      SERVICE_BASE_URL:     ${SERVICE_BASE_URL}
-      TOKEN_PEPPER:         ${TOKEN_PEPPER}
-      P4_RELAY_URL:         ${P4_RELAY_URL}
-      P4_RELAY_TOKEN:       ${P4_RELAY_TOKEN}
-      ACCESS_TOKEN_TTL_SECONDS:  2592000
-      REFRESH_TOKEN_TTL_SECONDS: 7776000
-      AUTH_CODE_TTL_SECONDS:     600
-      RATE_LIMIT_MAX:       100
-      RATE_LIMIT_WINDOW_MS: 60000
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/v1.0', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     networks:
       - alice-net
 
