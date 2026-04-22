@@ -13,10 +13,18 @@ Only **owner-confirmed** events trigger notifications. P4 publishes state only a
 
 ## Internal Webhook Endpoints (P4 Relay → alice-adapter)
 
-| Path | Trigger |
-|------|---------|
-| `POST /internal/p4/state-change` | P4 device state update |
-| `POST /internal/p4/discovery-change` | P4 device inventory changed |
+| Path | Body requires | Trigger |
+|------|---------------|---------|
+| `POST /internal/p4/state-change` | `yandex_user_id` in body | P4 device state update (full payload) |
+| `POST /internal/p4/house-state-change` | `house_id` only — adapter looks up `yandex_user_id` from `alice_account_links` | Node-RED change-detection (one property at a time) |
+| `POST /internal/p4/discovery-change` | `house_id` | P4 device inventory changed |
+
+### Choosing the right endpoint
+
+- Use `/state-change` when the caller knows `yandex_user_id` (e.g. mock-p4 tester, legacy integrations).
+- Use `/house-state-change` from Node-RED / real controllers — the adapter resolves `yandex_user_id` from the DB. If there is no active OAuth link for the house, the request returns `200 {skipped: true}` without error.
+
+Auth for all three: `Authorization: Bearer {P4_RELAY_TOKEN}`
 
 ## Queue Design
 
