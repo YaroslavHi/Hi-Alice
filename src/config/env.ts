@@ -57,6 +57,11 @@ const envSchema = z.object({
   // ── Notification queue (A5) ────────────────────────────────────────────────
   NOTIFICATION_QUEUE_KEY:       z.string().default('alice:notif:queue'),
   NOTIFICATION_DEDUP_TTL_SECONDS: z.coerce.number().int().positive().default(30),
+
+  // ── Admin API ──────────────────────────────────────────────────────────────
+  // Protects /admin/v1/* — must be sent as X-Admin-Key header.
+  // Min 32 chars. Do not expose this endpoint publicly.
+  ADMIN_API_KEY: z.string().min(32),
 });
 
 export type Env = z.infer<typeof envSchema>;

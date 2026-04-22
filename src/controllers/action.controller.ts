@@ -3,27 +3,23 @@
  *
  * POST /v1.0/user/devices/action — Yandex Smart Home device action execution.
  *
- * Architecture rules:
- *  - Action MUST wait for P4 owner-confirmed result (MQTT command_result) before DONE.
- *  - Cloud adapter NEVER speculatively returns DONE before P4 confirms.
- *  - Device semantic profile is validated server-side from P4 inventory.
- *  - Capabilities not supported by the device's semantic profile are rejected with
- *    NOT_SUPPORTED_IN_CURRENT_MODE before forwarding to P4.
- *  - Sensor devices (sensor.climate.basic) have no action capabilities — all actions
- *    are rejected at the profile level.
- *  - Multiple devices → parallel relay calls (Promise.allSettled).
- *  - Multiple capabilities per device → sequential (P4 processes in order).
- *  - HTTP 200 always returned; per-capability errors in payload.
+ * Architecture:
+ *   - Device inventory (kind, semantics) read from PostgreSQL `devices` table.
+ *   - Actions executed via P4 relay (owner-confirmed, no speculative DONE).
+ *   - Profile validation happens server-side from DB inventory.
+ *   - Sensor devices have no action capabilities — all actions rejected.
+ *   - Multiple devices → parallel relay calls (Promise.allSettled).
+ *   - HTTP 200 always; per-capability errors in payload.
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { requireValidToken } from '../middleware/auth.js';
 import {
-  fetchP4Inventory,
   sendP4DeviceAction,
   P4RelayError,
 } from '../services/p4.service.js';
+import { listDevices } from '../services/house.service.js';
 import { parseYandexDeviceId } from '../mappers/device.mapper.js';
 import { mapCapabilityAction, buildDeviceSetIntent } from '../mappers/action.mapper.js';
 import {
@@ -39,6 +35,7 @@ import type {
   CapabilityActionValue,
 } from '../types/yandex.js';
 import { ALICE_ERROR_CODES } from '../types/internal.js';
+import type { P4DeviceKind } from '../services/p4.service.js';
 
 // ─── Request validation ───────────────────────────────────────────────────────
 
@@ -99,7 +96,6 @@ async function executeCapabilityAction(
         err.code === 'timeout' || err.code === 'house_offline'
           ? ALICE_ERROR_CODES.DEVICE_UNREACHABLE
           : ALICE_ERROR_CODES.INTERNAL_ERROR;
-
       log.error(
         { deviceId: logicalDeviceId, capability: capability.type, relayError: err.code, requestId },
         'P4 relay error during action',
@@ -176,12 +172,10 @@ async function executeDeviceActions(
   allowedCaps: ReadonlySet<string> | null,
 ): Promise<DeviceActionResult> {
   const parsed = parseYandexDeviceId(device.id);
-
   if (!parsed) {
     log.warn({ yandexId: device.id, requestId }, 'Unparseable device ID in action request');
     return rejectAllCapabilities(device, ALICE_ERROR_CODES.DEVICE_NOT_FOUND);
   }
-
   if (parsed.houseId !== houseId) {
     log.warn(
       { yandexId: device.id, tokenHouseId: houseId, deviceHouseId: parsed.houseId, requestId },
@@ -189,17 +183,13 @@ async function executeDeviceActions(
     );
     return rejectAllCapabilities(device, ALICE_ERROR_CODES.DEVICE_NOT_FOUND);
   }
-
   if (allowedCaps === null) {
-    // Device not found in inventory or has no v1 profile.
     log.warn({ yandexId: device.id, requestId }, 'Device has no v1 semantic profile — rejecting action');
     return rejectAllCapabilities(device, ALICE_ERROR_CODES.DEVICE_NOT_FOUND);
   }
 
   const capResults: CapabilityActionResult[] = [];
-
   for (const cap of device.capabilities) {
-    // Profile-level capability validation: reject before sending to P4.
     if (!allowedCaps.has(cap.type)) {
       log.warn(
         { yandexId: device.id, capType: cap.type, requestId },
@@ -214,17 +204,11 @@ async function executeDeviceActions(
       });
       continue;
     }
-
     const result = await executeCapabilityAction(
-      cap as CapabilityActionValue,
-      houseId,
-      parsed.logicalDeviceId,
-      requestId,
-      log,
+      cap as CapabilityActionValue, houseId, parsed.logicalDeviceId, requestId, log,
     );
     capResults.push(result);
   }
-
   return { id: device.id, capabilities: capResults };
 }
 
@@ -249,11 +233,12 @@ async function handleAction(
 
   const { devices } = bodyResult.data.payload;
 
-  // ── Fetch P4 inventory to resolve semantic profiles server-side ──────────────
+  // ── Resolve semantic profiles from DB inventory ──────────────────────────────
   const deviceAllowedCaps = new Map<string, ReadonlySet<string> | null>();
 
   try {
-    const inventory = await fetchP4Inventory(house_id, request.log, request.requestId);
+    const dbDevices = await listDevices(request.server.pg, house_id);
+    const dbMap = new Map(dbDevices.map((d) => [d.logicalDeviceId, d]));
 
     for (const device of devices) {
       const parsed = parseYandexDeviceId(device.id);
@@ -261,14 +246,12 @@ async function handleAction(
         deviceAllowedCaps.set(device.id, null);
         continue;
       }
-      const descriptor = inventory.devices.find(
-        (d) => d.logical_device_id === parsed.logicalDeviceId,
-      );
-      if (!descriptor) {
+      const rec = dbMap.get(parsed.logicalDeviceId);
+      if (!rec) {
         deviceAllowedCaps.set(device.id, null);
         continue;
       }
-      const profile = resolveSemanticProfile(descriptor.kind, descriptor.semantics);
+      const profile = resolveSemanticProfile(rec.kind as P4DeviceKind, rec.semantics ?? undefined);
       if (profile === null || !V1_ALLOWED_PROFILES.has(profile)) {
         deviceAllowedCaps.set(device.id, null);
         continue;
@@ -276,31 +259,24 @@ async function handleAction(
       deviceAllowedCaps.set(device.id, PROFILE_ALLOWED_CAPABILITIES[profile]);
     }
   } catch (err) {
-    if (err instanceof P4RelayError) {
-      // Inventory unreachable — reject all devices with DEVICE_UNREACHABLE.
-      request.log.error(
-        { houseId: house_id, relayError: err.code, requestId: request.requestId },
-        'P4 relay inventory fetch failed — cannot validate action profiles',
-      );
-      const deviceResults: DeviceActionResult[] = devices.map((device) =>
-        rejectAllCapabilities(device, ALICE_ERROR_CODES.DEVICE_UNREACHABLE),
-      );
-      return reply.code(200).send({
-        request_id: request.requestId,
-        payload:    { devices: deviceResults },
-      } satisfies DevicesActionResponse);
-    }
-    throw err;
+    request.log.error(
+      { houseId: house_id, err, requestId: request.requestId },
+      'DB error during inventory fetch — rejecting all actions',
+    );
+    const deviceResults: DeviceActionResult[] = devices.map((device) =>
+      rejectAllCapabilities(device, ALICE_ERROR_CODES.DEVICE_UNREACHABLE),
+    );
+    return reply.code(200).send({
+      request_id: request.requestId,
+      payload:    { devices: deviceResults },
+    } satisfies DevicesActionResponse);
   }
 
   // ── Execute actions in parallel per device ───────────────────────────────────
   const settled = await Promise.allSettled(
     devices.map((device) =>
       executeDeviceActions(
-        device,
-        house_id,
-        request.requestId,
-        request.log,
+        device, house_id, request.requestId, request.log,
         deviceAllowedCaps.get(device.id) ?? null,
       ),
     ),
@@ -308,7 +284,6 @@ async function handleAction(
 
   const deviceResults: DeviceActionResult[] = settled.map((result, idx) => {
     if (result.status === 'fulfilled') return result.value;
-
     const device = devices[idx]!;
     request.log.error(
       { deviceId: device.id, err: result.reason, requestId: request.requestId },
@@ -332,7 +307,5 @@ async function handleAction(
 }
 
 export async function registerActionRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/v1.0/user/devices/action', {
-    preHandler: [requireValidToken],
-  }, handleAction);
+  app.post('/v1.0/user/devices/action', { preHandler: [requireValidToken] }, handleAction);
 }

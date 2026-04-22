@@ -1,39 +1,39 @@
 /**
  * @module controllers/discovery.controller
  *
- * GET /v1.0/user/devices — Yandex Smart Home device discovery endpoint.
+ * GET /v1.0/user/devices — Yandex Smart Home device discovery.
  *
- * Yandex spec:
- *   Request:  GET /v1.0/user/devices
- *             Authorization: Bearer {token}
- *             X-Request-Id: {uuid}
- *
- *   Response: HTTP 200
- *     {
- *       "request_id": "{X-Request-Id}",
- *       "payload": {
- *         "user_id": "{yandex_user_id}",
- *         "devices": [ ...YandexDevice[] ]
- *       }
- *     }
- *
- * Architecture rules (from CLOUD.md):
- *  - "Cloud Proxy синхронизирует device list с P4 при каждом GET /devices запросе"
- *    → No local device list cache. Every discovery call goes to P4.
- *  - Cloud Proxy MUST NOT own device state or config.
- *  - Only supported device types exposed (never unsupported).
+ * Device inventory is read from the PostgreSQL `devices` table (multi-tenant DB),
+ * NOT from the P4 relay. The P4 relay is only called for live state (query/action).
  *
  * Error strategy:
- *  - P4 offline → 200 with empty device list + warn log
- *    (Yandex spec: return valid response even if house is temporarily unavailable)
- *  - P4 relay network error → 500
+ *   DB unavailable → 200 with empty device list + warn log.
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { requireValidToken } from '../middleware/auth.js';
-import { fetchP4Inventory, P4RelayError } from '../services/p4.service.js';
+import { listDevices } from '../services/house.service.js';
 import { mapP4InventoryToYandex } from '../mappers/device.mapper.js';
+import type { P4DeviceDescriptor, P4DeviceKind } from '../services/p4.service.js';
+import type { DeviceRecord } from '../types/internal.js';
 import type { DevicesDiscoveryResponse } from '../types/yandex.js';
+
+// ─── DB → P4 descriptor shape ─────────────────────────────────────────────────
+
+function dbDeviceToDescriptor(rec: DeviceRecord): P4DeviceDescriptor {
+  return {
+    logical_device_id: rec.logicalDeviceId,
+    kind:              rec.kind as P4DeviceKind,
+    name:              rec.name,
+    room:              rec.room,
+    online:            true,
+    board_id:          rec.boardId ?? '',
+    ...(rec.semantics !== null ? { semantics: rec.semantics } : {}),
+    ...(rec.meta      !== null ? { meta: rec.meta as NonNullable<P4DeviceDescriptor['meta']> } : {}),
+  };
+}
+
+// ─── Handler ──────────────────────────────────────────────────────────────────
 
 async function handleDiscovery(
   request: FastifyRequest,
@@ -41,56 +41,29 @@ async function handleDiscovery(
 ): Promise<void> {
   const { house_id, yandex_user_id } = request.tokenContext!;
 
-  let inventory;
+  let devices: DeviceRecord[];
   try {
-    inventory = await fetchP4Inventory(house_id, request.log, request.requestId);
+    devices = await listDevices(request.server.pg, house_id);
   } catch (err) {
-    if (err instanceof P4RelayError) {
-      if (err.code === 'house_offline' || err.code === 'not_found') {
-        // Per Yandex spec: return valid (empty) response when house temporarily unavailable.
-        // Yandex will retry; Alice will show devices as unavailable via the query endpoint.
-        request.log.warn(
-          { houseId: house_id, error: err.code, requestId: request.requestId },
-          'P4 offline during discovery — returning empty device list',
-        );
-        return reply.code(200).send({
-          request_id: request.requestId,
-          payload: {
-            user_id: yandex_user_id,
-            devices: [],
-          },
-        } satisfies DevicesDiscoveryResponse);
-      }
-
-      if (err.code === 'timeout') {
-        request.log.error(
-          { houseId: house_id, requestId: request.requestId },
-          'P4 relay timeout during discovery',
-        );
-        return reply.code(200).send({
-          request_id: request.requestId,
-          payload:    { user_id: yandex_user_id, devices: [] },
-        } satisfies DevicesDiscoveryResponse);
-      }
-    }
-
-    // Unexpected relay error — propagate to global error handler → 500.
-    throw err;
+    request.log.warn(
+      { houseId: house_id, err, requestId: request.requestId },
+      'DB error during discovery — returning empty device list',
+    );
+    return reply.code(200).send({
+      request_id: request.requestId,
+      payload:    { user_id: yandex_user_id, devices: [] },
+    } satisfies DevicesDiscoveryResponse);
   }
 
-  const yandexDevices = mapP4InventoryToYandex(
-    inventory.devices,
-    house_id,
-    request.log,
-  );
+  const descriptors   = devices.map(dbDeviceToDescriptor);
+  const yandexDevices = mapP4InventoryToYandex(descriptors, house_id, request.log);
 
   request.log.info(
     {
       houseId:        house_id,
-      totalP4Devices: inventory.devices.length,
+      totalDevices:   devices.length,
       exposedDevices: yandexDevices.length,
-      skipped:        inventory.devices.length - yandexDevices.length,
-      topologyVersion: inventory.version,
+      skipped:        devices.length - yandexDevices.length,
       requestId:      request.requestId,
     },
     'Discovery response built',
@@ -106,7 +79,5 @@ async function handleDiscovery(
 }
 
 export async function registerDiscoveryRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/v1.0/user/devices', {
-    preHandler: [requireValidToken],
-  }, handleDiscovery);
+  app.get('/v1.0/user/devices', { preHandler: [requireValidToken] }, handleDiscovery);
 }

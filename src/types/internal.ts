@@ -159,3 +159,56 @@ export const ALICE_ERROR_CODES = {
 } as const;
 
 export type AliceErrorCode = typeof ALICE_ERROR_CODES[keyof typeof ALICE_ERROR_CODES];
+
+// ─── House & Device records (DB rows) ────────────────────────────────────────
+
+// postgres.camel transform is active → all DB row fields arrive as camelCase.
+export interface HouseRecord {
+  houseId:           string;
+  displayName:       string;
+  ownerLogin:        string;
+  mqttBrokerUrl:     string;
+  mqttUsername:      string | null;
+  mqttTopicPrefix:   string;
+  active:            boolean;
+  createdAt:         Date;
+  updatedAt:         Date;
+}
+
+export interface DeviceRecord {
+  houseId:           string;
+  logicalDeviceId:   string;
+  kind:              string;
+  semantics:         string | null;
+  name:              string;
+  room:              string;
+  boardId:           string | null;
+  meta:              Record<string, unknown> | null;
+  enabled:           boolean;
+  sortOrder:         number;
+  createdAt:         Date;
+  updatedAt:         Date;
+}
+
+export interface DeviceUpsert {
+  logical_device_id:  string;
+  kind:               string;
+  semantics?:         string;
+  name:               string;
+  room:               string;
+  board_id?:          string;
+  meta?:              Record<string, unknown>;
+  enabled?:           boolean;
+  sort_order?:        number;
+}
+
+export interface HouseCreate {
+  house_id:           string;
+  display_name:       string;
+  owner_login:        string;
+  owner_password:     string;   // plaintext — hashed in service layer
+  mqtt_broker_url:    string;
+  mqtt_username?:     string;
+  mqtt_password?:     string;   // plaintext — encrypted in service layer
+  mqtt_topic_prefix?: string;
+}

@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   queryP4DeviceState:  vi.fn(),
   sendP4DeviceAction:  vi.fn(),
   validateBearerToken: vi.fn(),
+  listDevices:         vi.fn(),
 }));
 
 vi.mock('../services/p4.service.js', () => ({
@@ -38,6 +39,10 @@ vi.mock('../services/token.service.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../services/token.service.js')>();
   return { ...original, validateBearerToken: mocks.validateBearerToken };
 });
+
+vi.mock('../services/house.service.js', () => ({
+  listDevices: mocks.listDevices,
+}));
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -194,20 +199,20 @@ describe('Auth middleware', () => {
 
 // ─── Discovery (A3) ───────────────────────────────────────────────────────────
 
+const now = new Date();
+const DB_DEVICES = [
+  { houseId: 'sb-00A3F2', logicalDeviceId: 'relay-01',  kind: 'relay',           semantics: 'light', name: 'Ceiling Light', room: 'Living Room', boardId: 'b1', meta: null, enabled: true, sortOrder: 0, createdAt: now, updatedAt: now },
+  { houseId: 'sb-00A3F2', logicalDeviceId: 'dimmer-01', kind: 'dimmer',           semantics: null,    name: 'Bedroom',       room: 'Bedroom',     boardId: 'b1', meta: null, enabled: true, sortOrder: 1, createdAt: now, updatedAt: now },
+  { houseId: 'sb-00A3F2', logicalDeviceId: 'ds-01',     kind: 'ds18b20',          semantics: null,    name: 'Temp Sensor',   room: 'Kitchen',     boardId: 'b1', meta: null, enabled: true, sortOrder: 2, createdAt: now, updatedAt: now },
+  { houseId: 'sb-00A3F2', logicalDeviceId: 'future-01', kind: 'unknown_future',   semantics: null,    name: 'X',             room: 'Hall',        boardId: 'b1', meta: null, enabled: true, sortOrder: 3, createdAt: now, updatedAt: now },
+];
+
 describe('GET /v1.0/user/devices (A3)', () => {
   let app: FastifyInstance;
 
   beforeEach(async () => {
     mocks.validateBearerToken.mockResolvedValue(VALID_TOKEN);
-    mocks.fetchP4Inventory.mockResolvedValue({
-      house_id: 'sb-00A3F2', version: 1, fetched_at: new Date().toISOString(),
-      devices: [
-        { logical_device_id: 'relay-01',  kind: 'relay',           semantics: 'light', name: 'Ceiling Light', online: true, board_id: 'b1' },
-        { logical_device_id: 'dimmer-01', kind: 'dimmer',                              name: 'Bedroom',       online: true, board_id: 'b1' },
-        { logical_device_id: 'ds-01',     kind: 'ds18b20',                             name: 'Temp Sensor',   online: true, board_id: 'b1' },
-        { logical_device_id: 'future-01', kind: 'unknown_future' as any,               name: 'X',             online: true, board_id: 'b1' },
-      ],
-    });
+    mocks.listDevices.mockResolvedValue(DB_DEVICES);
     app = await buildTestApp();
   });
   afterEach(async () => { await app.close(); vi.clearAllMocks(); });
@@ -221,7 +226,7 @@ describe('GET /v1.0/user/devices (A3)', () => {
     const body = res.json();
     expect(body.request_id).toBe('disc-001');
     expect(body.payload.user_id).toBe('yandex-uid-123');
-    // 3 supported, 1 filtered
+    // 3 supported, 1 filtered (unknown_future kind has no v1 profile)
     expect(body.payload.devices).toHaveLength(3);
     expect(body.payload.devices[0].id).toBe('hi:sb-00A3F2:relay-01');
     expect(body.payload.devices[0].type).toBe('devices.types.light');
@@ -238,17 +243,15 @@ describe('GET /v1.0/user/devices (A3)', () => {
     expect(ids[1]).toBe('hi:sb-00A3F2:dimmer-01');
   });
 
-  it('200 empty list when P4 offline (house_offline error)', async () => {
-    const { P4RelayError } = await import('../services/p4.service.js');
-    mocks.fetchP4Inventory.mockRejectedValue(new P4RelayError('house_offline', 'offline'));
+  it('200 empty list when DB unavailable', async () => {
+    mocks.listDevices.mockRejectedValue(new Error('DB connection failed'));
     const res = await app.inject({ method: 'GET', url: '/v1.0/user/devices', headers: { authorization: 'Bearer t' } });
     expect(res.statusCode).toBe(200);
     expect(res.json().payload.devices).toHaveLength(0);
   });
 
-  it('200 empty list on relay timeout', async () => {
-    const { P4RelayError } = await import('../services/p4.service.js');
-    mocks.fetchP4Inventory.mockRejectedValue(new P4RelayError('timeout', 'timed out'));
+  it('200 empty list when house has no devices', async () => {
+    mocks.listDevices.mockResolvedValue([]);
     const res = await app.inject({ method: 'GET', url: '/v1.0/user/devices', headers: { authorization: 'Bearer t' } });
     expect(res.json().payload.devices).toHaveLength(0);
   });
@@ -268,12 +271,9 @@ describe('POST /v1.0/user/devices/query (A4)', () => {
 
   beforeEach(async () => {
     mocks.validateBearerToken.mockResolvedValue(VALID_TOKEN);
-    mocks.fetchP4Inventory.mockResolvedValue({
-      house_id: 'sb-00A3F2', version: 1, fetched_at: new Date().toISOString(),
-      devices: [
-        { logical_device_id: 'relay-01', kind: 'relay', semantics: 'light', name: 'Ceiling Light', online: true, board_id: 'b1' },
-      ],
-    });
+    mocks.listDevices.mockResolvedValue([
+      { houseId: 'sb-00A3F2', logicalDeviceId: 'relay-01', kind: 'relay', semantics: 'light', name: 'Ceiling Light', room: 'Living Room', boardId: 'b1', meta: null, enabled: true, sortOrder: 0, createdAt: now, updatedAt: now },
+    ]);
     mocks.queryP4DeviceState.mockResolvedValue({
       house_id: 'sb-00A3F2', fetched_at: new Date().toISOString(),
       devices: [{
@@ -372,14 +372,11 @@ describe('POST /v1.0/user/devices/action (A4)', () => {
 
   beforeEach(async () => {
     mocks.validateBearerToken.mockResolvedValue(VALID_TOKEN);
-    mocks.fetchP4Inventory.mockResolvedValue({
-      house_id: 'sb-00A3F2', version: 1, fetched_at: new Date().toISOString(),
-      devices: [
-        { logical_device_id: 'relay-01',  kind: 'relay',  semantics: 'light', name: 'Ceiling Light', online: true, board_id: 'b1' },
-        { logical_device_id: 'relay-02',  kind: 'relay',  semantics: 'light', name: 'Socket',        online: true, board_id: 'b1' },
-        { logical_device_id: 'dimmer-01', kind: 'dimmer',                     name: 'Bedroom',        online: true, board_id: 'b1' },
-      ],
-    });
+    mocks.listDevices.mockResolvedValue([
+      { houseId: 'sb-00A3F2', logicalDeviceId: 'relay-01',  kind: 'relay',  semantics: 'light', name: 'Ceiling Light', room: 'Living Room', boardId: 'b1', meta: null, enabled: true, sortOrder: 0, createdAt: now, updatedAt: now },
+      { houseId: 'sb-00A3F2', logicalDeviceId: 'relay-02',  kind: 'relay',  semantics: 'light', name: 'Socket',        room: 'Kitchen',     boardId: 'b1', meta: null, enabled: true, sortOrder: 1, createdAt: now, updatedAt: now },
+      { houseId: 'sb-00A3F2', logicalDeviceId: 'dimmer-01', kind: 'dimmer', semantics: null,    name: 'Bedroom',       room: 'Bedroom',     boardId: 'b1', meta: null, enabled: true, sortOrder: 2, createdAt: now, updatedAt: now },
+    ]);
     mocks.sendP4DeviceAction.mockResolvedValue({ request_id: 'r', house_id: 'h', device_id: 'd', status: 'ok' });
     app = await buildTestApp();
   });
@@ -623,10 +620,9 @@ describe('Replay scenario (A8)', () => {
 
   beforeEach(async () => {
     mocks.validateBearerToken.mockResolvedValue(VALID_TOKEN);
-    mocks.fetchP4Inventory.mockResolvedValue({
-      house_id: 'sb-00A3F2', version: 1, fetched_at: new Date().toISOString(),
-      devices: [{ logical_device_id: 'relay-01', kind: 'relay', semantics: 'light', name: 'Light', online: true, board_id: 'b1' }],
-    });
+    mocks.listDevices.mockResolvedValue([
+      { houseId: 'sb-00A3F2', logicalDeviceId: 'relay-01', kind: 'relay', semantics: 'light', name: 'Light', room: 'Hall', boardId: 'b1', meta: null, enabled: true, sortOrder: 0, createdAt: now, updatedAt: now },
+    ]);
     app = await buildTestApp();
   });
   afterEach(async () => { await app.close(); vi.clearAllMocks(); });
@@ -676,7 +672,7 @@ describe('Correlation chain (A7)', () => {
   afterEach(async () => { await app.close(); vi.clearAllMocks(); });
 
   it('X-Request-Id from Yandex propagates to response body request_id', async () => {
-    mocks.fetchP4Inventory.mockResolvedValue({ house_id: 'sb-00A3F2', version: 1, fetched_at: new Date().toISOString(), devices: [] });
+    mocks.listDevices.mockResolvedValue([]);
 
     const res = await app.inject({
       method: 'GET', url: '/v1.0/user/devices',

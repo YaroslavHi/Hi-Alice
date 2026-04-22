@@ -105,4 +105,48 @@ CREATE INDEX IF NOT EXISTS idx_audit_event
 
 COMMENT ON TABLE alice_audit_log IS 'Append-only security audit trail.';
 
+-- ─── Houses (SmartBox controller instances) ──────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS houses (
+  house_id            TEXT        PRIMARY KEY,          -- 'sb-00A3F2'
+  display_name        TEXT        NOT NULL,             -- 'Офис на Тверской'
+  owner_login         TEXT        NOT NULL UNIQUE,      -- login for HI auth
+  owner_password_hash TEXT        NOT NULL,             -- scrypt hash
+  mqtt_broker_url     TEXT        NOT NULL,             -- 'mqtts://mymqtt.ru:8883'
+  mqtt_username       TEXT,
+  mqtt_password_enc   TEXT,                             -- AES-256-GCM encrypted
+  mqtt_topic_prefix   TEXT        NOT NULL DEFAULT 'demo/v1',
+  active              BOOLEAN     NOT NULL DEFAULT TRUE,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE houses IS 'SmartBox controller instances. One row per customer house.';
+
+-- ─── Devices per house ────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS devices (
+  house_id            TEXT        NOT NULL REFERENCES houses(house_id) ON DELETE CASCADE,
+  logical_device_id   TEXT        NOT NULL,             -- 'switch_903858'
+  kind                TEXT        NOT NULL,             -- 'relay','ds18b20','turkov',...
+  semantics           TEXT,                             -- 'light','socket','motion',...
+  name                TEXT        NOT NULL,             -- 'Люстра в гостиной'
+  room                TEXT        NOT NULL,             -- 'Гостиная'
+  board_id            TEXT,
+  meta                JSONB,                            -- kind-specific params
+  enabled             BOOLEAN     NOT NULL DEFAULT TRUE,
+  sort_order          INTEGER     NOT NULL DEFAULT 0,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (house_id, logical_device_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_devices_house
+  ON devices(house_id)
+  WHERE enabled = TRUE;
+
+COMMENT ON TABLE devices IS
+  'Device inventory per house. Source of truth for device names, rooms, and kinds. '
+  'P4 relay is queried only for live state values.';
+
 COMMIT;

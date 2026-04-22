@@ -14,3 +14,4 @@ process.env['ACCESS_TOKEN_TTL_SECONDS']  = '2592000';
 process.env['REFRESH_TOKEN_TTL_SECONDS'] = '7776000';
 process.env['AUTH_CODE_TTL_SECONDS']     = '600';
 process.env['NOTIFICATION_DEDUP_TTL_SECONDS'] = '30';
+process.env['ADMIN_API_KEY']                  = 'test-admin-key-at-least-32-chars-long';

@@ -74,13 +74,16 @@ describe('resolveSemanticProfile', () => {
     });
   });
 
+  describe('included sensor/actuator kinds', () => {
+    it('adc → sensor.voltage.basic', () => {
+      expect(resolveSemanticProfile('adc')).toBe('sensor.voltage.basic');
+    });
+    it('aqua_protect → actuator.valve', () => {
+      expect(resolveSemanticProfile('aqua_protect')).toBe('actuator.valve');
+    });
+  });
+
   describe('excluded from v1 → null', () => {
-    it('adc → null (voltage sensor not in v1)', () => {
-      expect(resolveSemanticProfile('adc')).toBeNull();
-    });
-    it('aqua_protect → null (no approved v1 profile)', () => {
-      expect(resolveSemanticProfile('aqua_protect')).toBeNull();
-    });
     it('script → null (automation trigger not in v1)', () => {
       expect(resolveSemanticProfile('script')).toBeNull();
     });
@@ -94,12 +97,11 @@ describe('resolveSemanticProfile', () => {
 
 describe('V1_ALLOWED_PROFILES', () => {
   const approved: SemanticProfileId[] = [
-    'light.relay',
-    'light.dimmer',
-    'socket.relay',
-    'curtain.cover',
-    'climate.thermostat.basic',
-    'sensor.climate.basic',
+    'light.relay', 'light.dimmer', 'socket.relay', 'curtain.cover',
+    'climate.thermostat.basic', 'sensor.climate.basic',
+    'hvac.fan', 'thermostat.floor', 'actuator.valve',
+    'sensor.motion.basic', 'sensor.door.basic', 'sensor.button.basic',
+    'sensor.voltage.basic',
   ];
 
   for (const profile of approved) {
@@ -108,8 +110,8 @@ describe('V1_ALLOWED_PROFILES', () => {
     });
   }
 
-  it('has exactly 6 approved profiles', () => {
-    expect(V1_ALLOWED_PROFILES.size).toBe(6);
+  it('has exactly 13 approved profiles', () => {
+    expect(V1_ALLOWED_PROFILES.size).toBe(13);
   });
 
   it('all resolved non-null profiles are in the allowlist', () => {

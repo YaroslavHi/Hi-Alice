@@ -149,12 +149,16 @@ describe('climate sensor mapping', () => {
 // ─── DEFECT C fix: excluded devices return null ───────────────────────────────
 
 describe('v1 compatibility exclusion (DEFECT C)', () => {
-  it('adc → null (voltage sensor not in v1)', () => {
-    expect(mapP4DeviceToYandex(makeDevice('adc'), HOUSE_ID)).toBeNull();
+  it('adc → mapped to sensor.voltage.basic', () => {
+    const result = mapP4DeviceToYandex(makeDevice('adc'), HOUSE_ID);
+    expect(result).not.toBeNull();
+    expect(result!.type).toBe('devices.types.sensor');
   });
 
-  it('aqua_protect → null (no approved v1 profile)', () => {
-    expect(mapP4DeviceToYandex(makeDevice('aqua_protect'), HOUSE_ID)).toBeNull();
+  it('aqua_protect → mapped to actuator.valve', () => {
+    const result = mapP4DeviceToYandex(makeDevice('aqua_protect'), HOUSE_ID);
+    expect(result).not.toBeNull();
+    expect(result!.type).toBe('devices.types.openable.valve');
   });
 
   it('script → null (automation trigger excluded from v1)', () => {
@@ -289,17 +293,22 @@ describe('mapP4InventoryToYandex', () => {
     expect(result[0]!.id).toContain('r-light');
   });
 
-  it('excludes adc, aqua_protect, script, scene from discovery', () => {
+  it('excludes script and scene from discovery; adc and aqua_protect are included', () => {
     const devices = [
-      makeDevice('relay',       { logical_device_id: 'r1', semantics: 'light' }),
+      makeDevice('relay',       { logical_device_id: 'r1',   semantics: 'light' }),
       makeDevice('adc',         { logical_device_id: 'adc1' }),
       makeDevice('aqua_protect',{ logical_device_id: 'ap1' }),
       makeDevice('script',      { logical_device_id: 'sc1' }),
       makeDevice('scene',       { logical_device_id: 'se1' }),
     ];
     const result = mapP4InventoryToYandex(devices, HOUSE_ID);
-    expect(result).toHaveLength(1);
-    expect(result[0]!.id).toContain('r1');
+    // relay+light, adc (sensor.voltage.basic), aqua_protect (actuator.valve) included = 3
+    // script and scene excluded
+    expect(result).toHaveLength(3);
+    const ids = result.map((d) => d.id);
+    expect(ids.some((id) => id.includes('r1'))).toBe(true);
+    expect(ids.some((id) => id.includes('adc1'))).toBe(true);
+    expect(ids.some((id) => id.includes('ap1'))).toBe(true);
   });
 
   it('returns empty array for empty inventory', () => {
