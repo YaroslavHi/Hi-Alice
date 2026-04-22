@@ -5,40 +5,109 @@
 | Component | Minimum version | Notes |
 |-----------|----------------|-------|
 | Node.js | 20 LTS | Runtime |
-| PostgreSQL | 15 | Supabase or self-hosted |
-| Redis | 7 | Token cache + future pub/sub |
-| Docker | 24 | For containerised deploy |
+| PostgreSQL | 15 | Self-hosted or managed |
+| Redis | 7 | Token L1 cache |
+| Docker + Compose | 24 | For containerised deploy |
+| Public HTTPS domain | — | Yandex rejects self-signed certs |
 
 ---
 
 ## Yandex Developer Console Setup
 
-Before deploying, you need two separate Yandex credential sets:
+Go to [dialogs.yandex.ru/developer](https://dialogs.yandex.ru/developer) → create skill → **Умный дом**.
 
-### 1. Smart Home Skill (OAuth server for account linking)
+### 1. OAuth settings (Авторизация)
 
-1. Go to [Yandex Dialogs](https://dialogs.yandex.ru/developer)
-2. Create a new skill → **Smart Home**
-3. In skill settings → **OAuth**:
-   - Authorization endpoint: `https://alice.h-i.space/oauth/authorize`
-   - Token endpoint: `https://alice.h-i.space/oauth/token`
-   - Client ID → set as `YANDEX_CLIENT_ID`
-   - Client Secret → set as `YANDEX_CLIENT_SECRET`
-4. In skill settings → **Webhook**:
-   - URL: `https://alice.h-i.space/v1.0`
-5. Note your **Skill ID** → set as `YANDEX_SKILL_ID`
-6. Generate a **skill OAuth token** from the console → set as `YANDEX_SKILL_OAUTH_TOKEN`
-   (This is used for outbound state change notifications, not for account linking)
+| Field | Value |
+|-------|-------|
+| Authorization endpoint | `https://your-domain.com/oauth/authorize` |
+| Token endpoint | `https://your-domain.com/oauth/token` |
+| Client ID | choose any string → set as `YANDEX_CLIENT_ID` |
+| Client Secret | min 16 chars → set as `YANDEX_CLIENT_SECRET` |
+| Redirect URI | Yandex shows it after saving — usually `https://social.yandex.net/broker/redirect` |
 
-### Two distinct credential types
+> **Important:** the save button in Yandex Dialogs only works when your HTTPS endpoint is reachable. Obtain a TLS certificate before configuring OAuth.
+
+### 2. Backend URL (Настройки → Webhook)
+
+Set the URL to your **base domain only** — **no `/v1.0` suffix**:
 
 ```
-YANDEX_CLIENT_ID / YANDEX_CLIENT_SECRET  ← used by Yandex to call /oauth/token
-                                            and by us to validate account linking
-
-YANDEX_SKILL_ID / YANDEX_SKILL_OAUTH_TOKEN ← used by alice-adapter to push
-                                              state changes TO Yandex
+https://your-domain.com
 ```
+
+Yandex appends `/v1.0/user/devices`, `/v1.0/user/devices/query`, etc. automatically.  
+Setting `https://your-domain.com/v1.0` causes double-prefix: `/v1.0/v1.0/user/devices` → 404.
+
+### 3. Skill credentials for outbound notifications
+
+After saving, note:
+- **Skill ID** → `YANDEX_SKILL_ID`
+- Generate a **skill OAuth token** → `YANDEX_SKILL_OAUTH_TOKEN`
+
+These are for alice-adapter pushing state changes *to* Yandex (A8), not for account linking.
+
+### Two credential sets — never confuse them
+
+```
+YANDEX_CLIENT_ID / SECRET  ← Yandex calls our /oauth/token with these
+YANDEX_SKILL_ID / OAUTH_TOKEN ← we call Yandex callback API with these
+```
+
+---
+
+## HI Login Stub (test/development only)
+
+In production the `HI_LOGIN_URL` points to the real HI authentication service. For testing, deploy a stub:
+
+```js
+// /opt/login-stub/server.js — minimal example
+const http = require('http');
+const url  = require('url');
+const qs   = require('querystring');
+
+http.createServer((req, res) => {
+  const parsed = url.parse(req.url, true);
+
+  if (req.method === 'GET' && parsed.pathname === '/login-stub') {
+    const { redirect_back, yandex_redirect, yandex_state } = parsed.query;
+    // Serve an HTML form; embed redirect_back, yandex_redirect, yandex_state
+    // as hidden fields.
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(`<form method="POST" action="/login-stub">
+      <input type="hidden" name="redirect_back"   value="${redirect_back}">
+      <input type="hidden" name="yandex_redirect"  value="${yandex_redirect}">
+      <input type="hidden" name="yandex_state"     value="${yandex_state}">
+      <input name="house_id" value="sb-TEST01">
+      <input name="owner"    value="test-owner">
+      <button>Login</button>
+    </form>`);
+  }
+
+  if (req.method === 'POST' && parsed.pathname === '/login-stub') {
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', () => {
+      const { house_id, owner, redirect_back, yandex_redirect, yandex_state } = qs.parse(body);
+      const cb = new URL(redirect_back);
+      cb.searchParams.set('hi_user_id',          owner);
+      cb.searchParams.set('hi_house_id',         house_id);
+      cb.searchParams.set('yandex_user_id',      'yandex-uid-' + house_id);
+      cb.searchParams.set('yandex_state',        yandex_state);
+      cb.searchParams.set('yandex_redirect_uri', yandex_redirect);
+      res.writeHead(302, { Location: cb.toString() });
+      res.end();
+    });
+  }
+}).listen(3001);
+```
+
+The oauth/authorize handler redirects to `HI_LOGIN_URL` with query params:
+- `redirect_back` — the callback URL (`SERVICE_BASE_URL/oauth/callback`)
+- `yandex_redirect` — Yandex redirect URI
+- `yandex_state` — opaque Yandex state string
+
+The callback expects: `hi_user_id`, `hi_house_id`, `yandex_user_id`, `yandex_state`, `yandex_redirect_uri`.
 
 ---
 
@@ -46,228 +115,262 @@ YANDEX_SKILL_ID / YANDEX_SKILL_OAUTH_TOKEN ← used by alice-adapter to push
 
 ```bash
 cp .env.example .env
+# Edit .env
 ```
 
-Required values to fill in:
+| Variable | Required | Where to get |
+|----------|----------|-------------|
+| `DATABASE_URL` | ✅ | `postgresql://user:pass@host:5432/db` |
+| `REDIS_URL` | ✅ | `redis://host:6379` |
+| `YANDEX_CLIENT_ID` | ✅ | Yandex Dialogs → OAuth settings |
+| `YANDEX_CLIENT_SECRET` | ✅ | Yandex Dialogs → OAuth settings (min 16 chars) |
+| `HI_LOGIN_URL` | ✅ | URL of HI auth login page |
+| `SERVICE_BASE_URL` | ✅ | Public HTTPS base URL, e.g. `https://alice.h-i.space` |
+| `TOKEN_ENCRYPTION_KEY` | ✅ | 64 hex chars: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `TOKEN_HMAC_KEY` | ✅ | 64 hex chars (different from encryption key) |
+| `P4_RELAY_URL` | ✅ | Internal URL of P4 relay, e.g. `http://p4-relay:4000` |
+| `P4_RELAY_TOKEN` | ✅ | Strong random secret shared with P4 relay |
+| `YANDEX_SKILL_ID` | ✅ (A8) | Yandex Dialogs → skill ID |
+| `YANDEX_SKILL_OAUTH_TOKEN` | ✅ (A8) | Yandex Dialogs → skill OAuth token |
+| `YANDEX_REDIRECT_URI_ALLOWLIST` | ❌ | Comma-separated allowed redirect URIs. Default: `https://social.yandex.net/broker/redirect` |
 
-| Variable | Where to get it |
-|----------|----------------|
-| `DATABASE_URL` | Supabase → Settings → Database → Connection string |
-| `REDIS_URL` | Your Redis instance URL |
-| `YANDEX_CLIENT_ID` | Yandex Dialogs → skill OAuth settings |
-| `YANDEX_CLIENT_SECRET` | Yandex Dialogs → skill OAuth settings |
-| `HI_LOGIN_URL` | Your HI auth service login page URL |
-| `SERVICE_BASE_URL` | Public HTTPS URL of this service (e.g. `https://alice.h-i.space`) |
-| `TOKEN_PEPPER` | Run: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
-| `P4_RELAY_URL` | Internal URL of your P4 relay service |
-| `P4_RELAY_TOKEN` | Strong random secret shared with P4 relay |
-| `YANDEX_SKILL_ID` | Yandex Dialogs → skill settings |
-| `YANDEX_SKILL_OAUTH_TOKEN` | Yandex Dialogs → skill OAuth token |
+> **Note:** `TOKEN_PEPPER` (mentioned in README) is an alias — use `TOKEN_ENCRYPTION_KEY` and `TOKEN_HMAC_KEY` as two separate keys.
 
 ---
 
 ## Database Migration
 
-```bash
-# First deploy only — idempotent (uses CREATE TABLE IF NOT EXISTS)
-npm run migrate
+`scripts/migrate.js` contains TypeScript type annotations and cannot be run as plain JavaScript. Apply the schema directly via psql:
 
-# Or via Docker:
-docker compose exec alice-adapter node scripts/migrate.js
+```bash
+# Via Docker Compose
+docker compose exec postgres psql -U alice -d alice_db < src/db/schema.sql
+
+# Or copy then run
+docker compose cp src/db/schema.sql postgres:/tmp/schema.sql
+docker compose exec postgres psql -U alice -d alice_db -f /tmp/schema.sql
 ```
+
+The schema is idempotent (`CREATE TABLE IF NOT EXISTS`).
 
 ---
 
 ## Docker Deployment
 
-### Build and start
+### docker-compose.yml
+
+```yaml
+services:
+  alice-adapter:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:3000/v1.0', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: alice
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: alice_db
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U alice -d alice_db']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
+  redis-data:
+```
+
+### Commands
 
 ```bash
-# Build image
+# First deploy
 docker compose build
-
-# Start all services (PostgreSQL, Redis, alice-adapter)
 docker compose up -d
+docker compose cp src/db/schema.sql postgres:/tmp/schema.sql
+docker compose exec postgres psql -U alice -d alice_db -f /tmp/schema.sql
 
-# Run migrations
-docker compose exec alice-adapter node scripts/migrate.js
+# Update after code change
+docker compose build alice-adapter
+docker compose up -d alice-adapter --force-recreate   # force-recreate re-reads env_file
 
-# Check logs
+# Check status
+docker compose ps
 docker compose logs -f alice-adapter
 ```
 
-### Health check
+> **Note:** `docker compose restart` does NOT re-read `env_file`. Always use `--force-recreate` when changing `.env`.
 
-```bash
-curl -i https://alice.h-i.space/v1.0
-# HTTP/1.1 200 OK
-# {"status":"ok"}
+---
+
+## Test Environment: Mock P4 Relay + Node-RED + MQTT
+
+For integration testing without real hardware, add these services to docker-compose:
+
+```yaml
+  mock-p4:
+    image: node:20-alpine
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - /opt/mock-p4:/app
+    command: node server.js
+    networks: [alice-net]
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    volumes:
+      - /opt/mosquitto/config:/mosquitto/config
+      - mosquitto-data:/mosquitto/data
+    ports: ['1883:1883']
+
+  nodered:
+    image: nodered/node-red:latest
+    restart: unless-stopped
+    volumes:
+      - /opt/nodered:/data
+    ports: ['1880:1880']
+    depends_on: [mosquitto]
 ```
+
+**Mock P4 relay** implements the real P4 relay HTTP API:
+```
+GET  /internal/v1/houses/{house_id}/devices         → inventory
+POST /internal/v1/houses/{house_id}/devices/state   → state query
+POST /internal/v1/houses/{house_id}/devices/action  → action (updates mutable state)
+```
+Auth: `Authorization: Bearer {P4_RELAY_TOKEN}`
+
+Set `P4_RELAY_URL=http://mock-p4:4000` in `.env`.
+
+**Node-RED** (port 1880) provides:
+- MQTT Monitor tab — live view of all `hi/#` MQTT events
+- State-Change Tester tab — inject buttons to trigger P4 state-change webhooks to alice-adapter
+- Alt P4 Relay tab — Node-RED as a drop-in P4 relay at port 1880
 
 ---
 
 ## Nginx Configuration
 
-The service runs on port 3000. Example Nginx upstream configuration:
-
 ```nginx
-upstream alice_adapter {
-    server 127.0.0.1:3000;
-    keepalive 32;
+server {
+    listen 80;
+    server_name alice.h-i.space;
+    return 301 https://alice.h-i.space$request_uri;
 }
 
 server {
-    listen 443 ssl http2;
+    listen 443 ssl;
     server_name alice.h-i.space;
 
     ssl_certificate     /etc/letsencrypt/live/alice.h-i.space/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/alice.h-i.space/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
 
-    # Required: Yandex verifies TLS and rejects self-signed certs.
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_prefer_server_ciphers on;
-
-    location / {
-        proxy_pass         http://alice_adapter;
-        proxy_http_version 1.1;
-        proxy_set_header   Connection "";
-        proxy_set_header   Host              $host;
-        proxy_set_header   X-Real-IP         $remote_addr;
-        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto $scheme;
-
-        # Yandex expects responses within 5s — set upstream timeout generously.
-        proxy_read_timeout 15s;
-        proxy_send_timeout 15s;
+    # HI login stub (test/dev only)
+    location /login-stub {
+        proxy_pass       http://127.0.0.1:3001;
+        proxy_set_header Host $host;
     }
 
-    # Block internal webhook from external access.
-    location /internal/ {
-        allow 10.0.0.0/8;   # P4 relay subnet only
-        allow 172.16.0.0/12;
-        deny  all;
-        proxy_pass http://alice_adapter;
+    # alice-adapter
+    location / {
+        proxy_pass             http://127.0.0.1:3000;
+        proxy_http_version     1.1;
+        proxy_set_header       Connection "";
+        proxy_set_header       Host              $host;
+        proxy_set_header       X-Real-IP         $remote_addr;
+        proxy_set_header       X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header       X-Forwarded-Proto $scheme;
+        proxy_read_timeout     15s;
+        proxy_send_timeout     15s;
     }
 }
 ```
 
----
-
-## Network Security
-
-### Inbound (from Yandex)
-
-Yandex Smart Home sends requests from these IP ranges (verify current list at Yandex docs):
-- Standard Yandex datacenter IPs
-
-Recommend: no IP allowlist on Yandex-facing endpoints — token validation handles auth.
-
-### Internal webhook
-
-`POST /internal/p4/state-change` must be reachable only from the P4 relay service:
-- Restrict at Nginx level (see `location /internal/` above)
-- Or use a separate internal port (e.g. `PORT_INTERNAL=3001`)
-- The endpoint also validates `P4_RELAY_TOKEN` regardless
+TLS certificate via Let's Encrypt:
+```bash
+# Stop nginx, get cert, restart
+systemctl stop nginx
+certbot certonly --standalone -d alice.h-i.space --non-interactive --agree-tos --email you@example.com
+systemctl start nginx
+```
 
 ---
 
 ## Observability
 
-### Structured logs (pino)
+### Key log events
 
-All logs are JSON in production:
+| Message | Level | Meaning |
+|---------|-------|---------|
+| `Discovery response built` | INFO | `exposedDevices` = devices returned to Yandex |
+| `P4 offline during discovery` | WARN | P4 board unreachable — returns empty list |
+| `P4 relay: house not found` | WARN | house_id not registered in relay |
+| `Token pair issued` | INFO | Account linked successfully |
+| `Invalid or expired Bearer token` | WARN | Failed auth |
+| `Yandex callback failed after all retries` | ERROR | State push not reaching Yandex |
 
-```json
-{
-  "level": 30,
-  "time": 1745229841000,
-  "pid": 1,
-  "msg": "Token validated",
-  "tokenId": "atok-uuid",
-  "userId": "user-001",
-  "houseId": "sb-00A3F2",
-  "requestId": "yandex-request-uuid"
-}
+### Metrics endpoint
+
+```bash
+curl https://alice.h-i.space/metrics   # Prometheus format
 ```
 
-Sensitive fields are redacted automatically:
-- `req.headers.authorization` → `[REDACTED]`
-- `body.client_secret` → `[REDACTED]`
-- `body.code` → `[REDACTED]`
-- `body.refresh_token` → `[REDACTED]`
+---
 
-### Key log events to monitor
+## Known Deployment Gotchas
 
-| Event | Level | What it means |
-|-------|-------|---------------|
-| `Token validated` | DEBUG | Normal auth |
-| `Invalid or expired Bearer token` | WARN | Failed auth (may be attack) |
-| `P4 offline during discovery` | WARN | P4 board unreachable |
-| `P4 relay timeout during discovery` | ERROR | Relay too slow |
-| `P4 relay failed during state query` | ERROR | Query path down |
-| `P4 relay error during action` | ERROR | Action path down |
-| `Yandex callback failed after all retries` | ERROR | Notifications not reaching Yandex |
-| `Token pair issued` | INFO | New account link |
-| `Account unlinked` | INFO | User unlinked skill |
-
-### Metrics to alert on
-
-| Metric | Alert threshold |
-|--------|----------------|
-| 401 rate on `/v1.0/user/*` | > 10/min |
-| P4 relay timeout rate | > 5% of requests |
-| Yandex callback retry rate | > 20% of notifications |
-| `oauth_access_tokens` rows with `revoked_at IS NULL` | Unexpected spike |
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Yandex OAuth save button does nothing | HTTPS not reachable from Yandex | Obtain TLS cert first |
+| `GET /v1.0/v1.0/user/devices` → 404 | Backend URL in Dialogs includes `/v1.0` | Remove the suffix |
+| `POST /oauth/token` → 415 Unsupported Media Type | Fastify missing form-body parser | Fixed in `src/app.ts` — ensure you're running latest build |
+| `POST /oauth/token` → 400 Auth code not found | Container running with stale `.env` (old placeholder values) | `docker compose up --force-recreate alice-adapter` |
+| Login page loads but redirect goes to `127.0.0.1` | Login stub redirecting to internal address | Stub must redirect to `redirect_back` param (public URL), not hardcoded internal address |
+| Discovery returns empty list | P4 relay URL paths wrong | Real P4 API is `/internal/v1/houses/{id}/devices` — not `/p4/inventory/{id}` |
 
 ---
 
-## Token Lifecycle Management
+## Pre-Production Checklist
 
-### Expired token cleanup (cron job)
-
-Tokens expire but are not auto-deleted. Run a weekly cleanup:
-
-```sql
--- Delete expired, revoked tokens older than 7 days
-DELETE FROM oauth_refresh_tokens
-WHERE expires_at < now() - INTERVAL '7 days';
-
-DELETE FROM oauth_access_tokens
-WHERE expires_at < now() - INTERVAL '7 days';
-
--- Clean up orphaned lookup entries
-DELETE FROM oauth_token_lookup
-WHERE access_token_id NOT IN (SELECT id FROM oauth_access_tokens);
-
--- Trim audit log older than 90 days
-DELETE FROM alice_audit_log
-WHERE created_at < now() - INTERVAL '90 days';
-```
-
-Add this as a PostgreSQL scheduled function or an external cron.
-
----
-
-## Rollback
-
-The service is stateless beyond PostgreSQL and Redis. To rollback:
-
-1. Deploy previous Docker image tag
-2. No migration rollback needed (schema uses `IF NOT EXISTS`)
-3. Tokens issued by new version remain valid (DB stores hashes, not version-specific data)
-
----
-
-## Checklist: Pre-Production
-
-- [ ] TLS certificate valid and trusted (not self-signed — Yandex rejects it)
+- [ ] TLS certificate valid and CA-trusted (Let's Encrypt works)
 - [ ] `SERVICE_BASE_URL` matches the URL registered in Yandex Dialogs exactly
-- [ ] `TOKEN_PEPPER` generated with `crypto.randomBytes(32)` — never reuse across environments
+- [ ] Backend URL in Yandex Dialogs is base domain **without** `/v1.0`
+- [ ] `TOKEN_ENCRYPTION_KEY` and `TOKEN_HMAC_KEY` are 64 random hex chars each, different from each other
 - [ ] `P4_RELAY_TOKEN` is a strong random secret (32+ bytes)
-- [ ] `/internal/` routes blocked at Nginx from public internet
-- [ ] PostgreSQL connection string uses a dedicated service user (not superuser)
-- [ ] Redis password set if Redis is exposed beyond localhost
-- [ ] `npm run migrate` executed against production DB
-- [ ] Health check endpoint responding: `curl https://alice.h-i.space/v1.0`
-- [ ] Yandex Dialogs → skill → test account linking flow end-to-end
-- [ ] Confirm `alice_audit_log` is receiving `token_issued` entries after linking
+- [ ] DB schema applied: `CREATE TABLE IF NOT EXISTS` runs cleanly
+- [ ] Health check responding: `curl https://alice.h-i.space/v1.0` → `200 OK`
+- [ ] End-to-end account linking tested: authorize → login → token issued
+- [ ] Discovery returns expected devices
+- [ ] At least one action round-trip verified (status: DONE in Yandex logs)
+- [ ] `YANDEX_SKILL_ID` and `YANDEX_SKILL_OAUTH_TOKEN` set for push notifications

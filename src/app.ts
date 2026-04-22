@@ -44,6 +44,18 @@ export async function buildApp(): Promise<FastifyInstance> {
     trustProxy: true,
   });
 
+  // OAuth 2.0 token endpoint receives application/x-www-form-urlencoded
+  app.addContentTypeParser(
+    'application/x-www-form-urlencoded',
+    { parseAs: 'string' },
+    (_req, body, done) => {
+      const params = new URLSearchParams(body as string);
+      const result: Record<string, string> = {};
+      params.forEach((value, key) => { result[key] = value; });
+      done(null, result);
+    },
+  );
+
   await app.register(sensible);
   await app.register(helmet, { contentSecurityPolicy: false });
   await app.register(rateLimit, {

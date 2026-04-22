@@ -1,4 +1,45 @@
-# A8 — Test Harness
+# Test Harness
+
+## E2E Integration Test Environment
+
+Full end-to-end testing is verified against a live server (`alice.prosto-test.ru`, Ubuntu 24.04) with the following stack:
+
+```
+Yandex Smart Home (real)
+    ↓ HTTPS
+nginx (443) → alice-adapter (port 3000)
+                  ↓ HTTP
+             mock-p4 (port 4000)  ←→  mosquitto (MQTT) ←→ Node-RED (port 1880)
+```
+
+### E2E Test Results (2026-04-22)
+
+| Stage | Result |
+|-------|--------|
+| OAuth authorize redirect | ✅ |
+| Login stub → callback → token issued | ✅ |
+| `POST /oauth/token` (form-urlencoded) | ✅ |
+| Discovery: 4 devices returned | ✅ |
+| State query per device | ✅ |
+| Action: `range(open)` on curtains | ✅ DONE |
+| Action: `on_off` toggle | ✅ DONE |
+
+Yandex log confirmation:
+```
+Capability (type:devices.capabilities.range, instance: open) action status is DONE
+Capability (type:devices.capabilities.on_off, instance: on) action status is DONE
+```
+
+### Triggering E2E Tests
+
+1. Start all containers: `docker compose up -d`
+2. Apply schema if first run (see DEPLOYMENT.md)
+3. Open `http://<server>:1880` (Node-RED) → **State-Change Tester** tab → use inject buttons to simulate P4 state events
+4. For full OAuth flow: link the skill at `dialogs.yandex.ru/developer` → test tab
+
+---
+
+# A8 — Unit Test Harness
 
 ## Test Structure
 
