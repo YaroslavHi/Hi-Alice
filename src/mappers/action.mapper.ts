@@ -27,6 +27,7 @@ import type {
   CapabilityActionValue,
   OnOffCapabilityStateValue,
   RangeCapabilityStateValue,
+  ModeCapabilityStateValue,
   ColorSettingCapabilityStateValue,
 } from '../types/yandex.js';
 import type { DeviceSetIntent } from '../types/internal.js';
@@ -126,7 +127,18 @@ export function mapCapabilityAction(
     }
 
     case 'devices.capabilities.mode': {
-      return { ok: false, error: { error_code: 'NOT_SUPPORTED_IN_CURRENT_MODE', error_message: 'Mode not supported for this device' } };
+      const state = action.state as ModeCapabilityStateValue;
+      if (state.instance === 'fan_speed' || state.instance === 'work_speed') {
+        const speedMap: Record<string, number> = {
+          auto: 0, low: 1, medium: 2, high: 3, turbo: 4, max: 5,
+        };
+        const speed = speedMap[state.value];
+        if (speed === undefined) {
+          return { ok: false, error: { error_code: 'INVALID_VALUE', error_message: `Unknown fan speed mode: ${state.value}` } };
+        }
+        return { ok: true, result: { property: 'speed', value: speed } };
+      }
+      return { ok: false, error: { error_code: 'NOT_SUPPORTED_IN_CURRENT_MODE', error_message: `Mode instance '${state.instance}' not supported` } };
     }
 
     case 'devices.capabilities.video_stream': {

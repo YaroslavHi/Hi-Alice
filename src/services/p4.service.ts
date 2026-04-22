@@ -57,7 +57,12 @@ export type P4DeviceKind =
   | 'aqua_protect'
   | 'curtains'
   | 'script'
-  | 'scene';
+  | 'scene'
+  | 'turkov'     // Turkov ventilation unit (5-speed relay-based)
+  | 'fancoil'    // Fan coil unit (5-speed relay-based)
+  | 'sensords8'  // Floor heating thermostat (DS18B20 + relay)
+  | 'discrete'   // Digital input sensor (motion / door / button)
+  | 'switch';    // SmartBox Switch (relay+discrete combo, behaves as relay)
 
 export interface P4DeviceDescriptor {
   logical_device_id: string;       // stable house-level ID
@@ -88,6 +93,10 @@ export interface P4DeviceDescriptor {
     supports_color_temp?: boolean;
     color_temp_min_k?:   number;
     color_temp_max_k?:   number;
+    // Discrete sensors
+    alisa_type?:         string;  // 'AlisaSensorMotion' | 'AlisaSensorOpen' | 'AlisaSensorButton'
+    // Turkov / Fancoil
+    speed_count?:        number;  // number of speed levels (default 5)
   };
 }
 

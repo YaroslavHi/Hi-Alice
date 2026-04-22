@@ -34,7 +34,14 @@ export type SemanticProfileId =
   | 'socket.relay'
   | 'curtain.cover'
   | 'climate.thermostat.basic'
-  | 'sensor.climate.basic';
+  | 'sensor.climate.basic'
+  | 'hvac.fan'             // turkov, fancoil → thermostat.ac
+  | 'thermostat.floor'     // sensords8 → thermostat
+  | 'actuator.valve'       // aqua_protect → openable.valve
+  | 'sensor.motion.basic'  // discrete (AlisaSensorMotion) → sensor.motion
+  | 'sensor.door.basic'    // discrete (AlisaSensorOpen/Door/Window) → sensor.door
+  | 'sensor.button.basic'  // discrete (AlisaSensorButton) → sensor.button
+  | 'sensor.voltage.basic'; // adc → sensor
 
 // ─── V1 explicit allowlist ────────────────────────────────────────────────────
 
@@ -50,6 +57,13 @@ export const V1_ALLOWED_PROFILES = new Set<SemanticProfileId>([
   'curtain.cover',
   'climate.thermostat.basic',
   'sensor.climate.basic',
+  'hvac.fan',
+  'thermostat.floor',
+  'actuator.valve',
+  'sensor.motion.basic',
+  'sensor.door.basic',
+  'sensor.button.basic',
+  'sensor.voltage.basic',
 ]);
 
 // ─── Profile resolution ───────────────────────────────────────────────────────
@@ -105,8 +119,32 @@ export function resolveSemanticProfile(
     case 'dht_humidity':
       return 'sensor.climate.basic';
 
-    case 'adc':
+    case 'turkov':
+    case 'fancoil':
+      return 'hvac.fan';
+
+    case 'sensords8':
+      return 'thermostat.floor';
+
     case 'aqua_protect':
+      return 'actuator.valve';
+
+    case 'discrete': {
+      const t = semantics?.toLowerCase() ?? '';
+      if (t.includes('motion')) return 'sensor.motion.basic';
+      if (t.includes('open') || t.includes('door') || t.includes('window')) return 'sensor.door.basic';
+      if (t.includes('button')) return 'sensor.button.basic';
+      return null;
+    }
+
+    case 'switch':
+      // SmartBox Switch = relay with physical button, treat as light by default
+      if (semantics === 'socket') return 'socket.relay';
+      return 'light.relay';
+
+    case 'adc':
+      return 'sensor.voltage.basic';
+
     case 'script':
     case 'scene':
       return null;
@@ -146,5 +184,12 @@ export const PROFILE_ALLOWED_CAPABILITIES: Record<SemanticProfileId, ReadonlySet
     'devices.capabilities.on_off',
     'devices.capabilities.range',
   ]),
-  'sensor.climate.basic': new Set<string>(),  // read-only: no action capabilities
+  'sensor.climate.basic':  new Set<string>(),  // read-only: no action capabilities
+  'hvac.fan':              new Set(['devices.capabilities.on_off', 'devices.capabilities.mode']),
+  'thermostat.floor':      new Set(['devices.capabilities.on_off', 'devices.capabilities.range']),
+  'actuator.valve':        new Set(['devices.capabilities.on_off']),
+  'sensor.motion.basic':   new Set<string>(),
+  'sensor.door.basic':     new Set<string>(),
+  'sensor.button.basic':   new Set<string>(),
+  'sensor.voltage.basic':  new Set<string>(),
 };

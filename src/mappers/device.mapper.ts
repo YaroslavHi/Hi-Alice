@@ -30,7 +30,9 @@ import type {
   CapabilityDefinition,
   PropertyDefinition,
   RangeCapabilityParameters,
+  ModeCapabilityParameters,
   ColorSettingCapabilityParameters,
+  EventPropertyParameters,
 } from '../types/yandex.js';
 import type { P4DeviceDescriptor, P4DeviceKind } from '../services/p4.service.js';
 import {
@@ -69,6 +71,13 @@ const PROFILE_YANDEX_TYPE: Record<SemanticProfileId, YandexDeviceType> = {
   'curtain.cover':            'devices.types.openable.curtain',
   'climate.thermostat.basic': 'devices.types.thermostat',
   'sensor.climate.basic':     'devices.types.sensor.climate',
+  'hvac.fan':                 'devices.types.thermostat.ac',
+  'thermostat.floor':         'devices.types.thermostat',
+  'actuator.valve':           'devices.types.openable.valve',
+  'sensor.motion.basic':      'devices.types.sensor.motion',
+  'sensor.door.basic':        'devices.types.sensor.door',
+  'sensor.button.basic':      'devices.types.sensor.button',
+  'sensor.voltage.basic':     'devices.types.sensor',
 };
 
 // ─── Capability builders ──────────────────────────────────────────────────────
@@ -135,6 +144,25 @@ function hsvColorCapability(): CapabilityDefinition {
   };
 }
 
+function fanSpeedModeCapability(speedCount: number): CapabilityDefinition {
+  const modes = [
+    { value: 'auto' },
+    { value: 'low' },
+    { value: 'medium' },
+    { value: 'high' },
+    { value: 'turbo' },
+  ].slice(0, speedCount + 1);
+  return {
+    type:       'devices.capabilities.mode',
+    retrievable: true,
+    reportable:  true,
+    parameters: {
+      instance: 'fan_speed',
+      modes,
+    } satisfies ModeCapabilityParameters,
+  };
+}
+
 // ─── Property builders ────────────────────────────────────────────────────────
 
 function temperatureProperty(): PropertyDefinition {
@@ -152,6 +180,63 @@ function humidityProperty(): PropertyDefinition {
     retrievable: true,
     reportable:  true,
     parameters: { instance: 'humidity', unit: 'unit.percent' },
+  };
+}
+
+function waterLeakEventProperty(): PropertyDefinition {
+  return {
+    type:       'devices.properties.event',
+    retrievable: true,
+    reportable:  true,
+    parameters: {
+      instance: 'water_leak',
+      events:   [{ value: 'dry' }, { value: 'leak' }],
+    } satisfies EventPropertyParameters,
+  };
+}
+
+function motionEventProperty(): PropertyDefinition {
+  return {
+    type:       'devices.properties.event',
+    retrievable: true,
+    reportable:  true,
+    parameters: {
+      instance: 'motion',
+      events:   [{ value: 'detected' }, { value: 'not_detected' }],
+    } satisfies EventPropertyParameters,
+  };
+}
+
+function openEventProperty(): PropertyDefinition {
+  return {
+    type:       'devices.properties.event',
+    retrievable: true,
+    reportable:  true,
+    parameters: {
+      instance: 'open',
+      events:   [{ value: 'opened' }, { value: 'closed' }],
+    } satisfies EventPropertyParameters,
+  };
+}
+
+function buttonEventProperty(): PropertyDefinition {
+  return {
+    type:       'devices.properties.event',
+    retrievable: true,
+    reportable:  true,
+    parameters: {
+      instance: 'button',
+      events:   [{ value: 'click' }, { value: 'double_click' }, { value: 'long_press' }],
+    } satisfies EventPropertyParameters,
+  };
+}
+
+function voltageProperty(): PropertyDefinition {
+  return {
+    type:       'devices.properties.float',
+    retrievable: true,
+    reportable:  true,
+    parameters: { instance: 'voltage', unit: 'unit.volt' },
   };
 }
 
@@ -211,9 +296,31 @@ function buildCapabilitiesForKind(
     case 'dht_temp':
     case 'dht_humidity':
     case 'adc':
-    case 'aqua_protect':
     case 'script':
     case 'scene':
+      return [];
+
+    case 'turkov':
+    case 'fancoil':
+      return [
+        onOffCapability(),
+        fanSpeedModeCapability(device.meta?.speed_count ?? 5),
+      ];
+
+    case 'sensords8':
+      return [
+        onOffCapability(),
+        temperatureSetpointCapability(
+          device.meta?.temp_setpoint_min ?? 5,
+          device.meta?.temp_setpoint_max ?? 45,
+        ),
+      ];
+
+    case 'aqua_protect':
+      return [onOffCapability()];
+
+    case 'switch':
+    case 'discrete':
       return [];
 
     default: {
@@ -224,7 +331,7 @@ function buildCapabilitiesForKind(
   }
 }
 
-function buildPropertiesForKind(kind: P4DeviceKind): PropertyDefinition[] {
+function buildPropertiesForKind(kind: P4DeviceKind, device: P4DeviceDescriptor): PropertyDefinition[] {
   switch (kind) {
     case 'ds18b20':
     case 'dht_temp':
@@ -232,6 +339,26 @@ function buildPropertiesForKind(kind: P4DeviceKind): PropertyDefinition[] {
 
     case 'dht_humidity':
       return [humidityProperty()];
+
+    case 'adc':
+      return [voltageProperty()];
+
+    case 'sensords8':
+      return [temperatureProperty()];
+
+    case 'aqua_protect':
+      return [waterLeakEventProperty()];
+
+    case 'discrete': {
+      const t = (device.meta?.alisa_type ?? device.semantics ?? '').toLowerCase();
+      if (t.includes('motion')) return [motionEventProperty()];
+      if (t.includes('open') || t.includes('door') || t.includes('window')) return [openEventProperty()];
+      if (t.includes('button')) return [buttonEventProperty()];
+      return [];
+    }
+
+    case 'switch':
+      return [];
 
     default:
       return [];
@@ -267,7 +394,7 @@ export function mapP4DeviceToYandex(
     type:         yandexType,
     ...(device.room !== undefined ? { room: device.room } : {}),
     capabilities: buildCapabilitiesForKind(device.kind, device),
-    properties:   buildPropertiesForKind(device.kind),
+    properties:   buildPropertiesForKind(device.kind, device),
     device_info: {
       manufacturer: 'HI SmartBox',
       model:        device.kind,

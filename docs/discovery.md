@@ -31,25 +31,34 @@ Devices that resolve to `null` (no approved v1 profile) are **silently filtered*
 
 ## Approved v1 profiles
 
-| P4 kind | semantics label | Semantic Profile | Yandex Type | Capabilities | Properties |
-|---------|-----------------|-----------------|-------------|--------------|------------|
-| `relay` | `"light"` | `light.relay` | `devices.types.light` | `on_off` | — |
-| `relay` | `"socket"` | `socket.relay` | `devices.types.socket` | `on_off` | — |
-| `relay` | *(none)* | — | **excluded** | — | — |
-| `dimmer` | — | `light.dimmer` | `devices.types.light` | `on_off`, `range(brightness)` | — |
-| `pwm` | — | `light.dimmer` | `devices.types.light` | `on_off`, `range(brightness)` | — |
-| `pwm_rgb` | — | `light.dimmer` | `devices.types.light` | `on_off`, `range(brightness)`, `color_setting(hsv)` | — |
-| `dali` | — | `light.dimmer` | `devices.types.light` | `on_off`, `range(brightness)` | — |
-| `dali_group` | — | `light.dimmer` | `devices.types.light` | `on_off`, `range(brightness)` | — |
-| `curtains` | — | `curtain.cover` | `devices.types.openable.curtain` | `on_off`, `range(open)` | — |
-| `climate_control` | — | `climate.thermostat.basic` | `devices.types.thermostat` | `on_off`, `range(temperature)` | — |
-| `ds18b20` | — | `sensor.climate.basic` | `devices.types.sensor.climate` | — | `float(temperature)` |
-| `dht_temp` | — | `sensor.climate.basic` | `devices.types.sensor.climate` | — | `float(temperature)` |
-| `dht_humidity` | — | `sensor.climate.basic` | `devices.types.sensor.climate` | — | `float(humidity)` |
-| `adc` | — | — | **excluded** | — | — |
-| `aqua_protect` | — | — | **excluded** | — | — |
-| `script` | — | — | **excluded** | — | — |
-| `scene` | — | — | **excluded** | — | — |
+| P4 kind          | semantics       | Semantic Profile           | Yandex Type                      | Capabilities                               | Properties          |
+|------------------|-----------------|----------------------------|----------------------------------|--------------------------------------------|---------------------|
+| `relay`          | `"light"`       | `light.relay`              | `devices.types.light`            | `on_off`                                   | —                   |
+| `relay`          | `"socket"`      | `socket.relay`             | `devices.types.socket`           | `on_off`                                   | —                   |
+| `relay`          | *(none)*        | —                          | **excluded**                     | —                                          | —                   |
+| `switch`         | `"light"`       | `light.relay`              | `devices.types.light`            | `on_off`                                   | —                   |
+| `switch`         | `"socket"`      | `socket.relay`             | `devices.types.socket`           | `on_off`                                   | —                   |
+| `switch`         | *(none)*        | `light.relay`              | `devices.types.light`            | `on_off`                                   | —                   |
+| `dimmer`         | —               | `light.dimmer`             | `devices.types.light`            | `on_off`, `range(brightness)`              | —                   |
+| `pwm`            | —               | `light.dimmer`             | `devices.types.light`            | `on_off`, `range(brightness)`              | —                   |
+| `pwm_rgb`        | —               | `light.dimmer`             | `devices.types.light`            | `on_off`, `range(brightness)`, `color_setting(hsv)` | —        |
+| `dali`           | —               | `light.dimmer`             | `devices.types.light`            | `on_off`, `range(brightness)`              | —                   |
+| `dali_group`     | —               | `light.dimmer`             | `devices.types.light`            | `on_off`, `range(brightness)`              | —                   |
+| `curtains`       | —               | `curtain.cover`            | `devices.types.openable.curtain` | `on_off`, `range(open)`                    | —                   |
+| `climate_control`| —               | `climate.thermostat.basic` | `devices.types.thermostat`       | `on_off`, `range(temperature)`             | —                   |
+| `turkov`         | —               | `hvac.fan`                 | `devices.types.thermostat.ac`    | `on_off`, `mode(fan_speed)`                | —                   |
+| `fancoil`        | —               | `hvac.fan`                 | `devices.types.thermostat.ac`    | `on_off`, `mode(fan_speed)`                | —                   |
+| `sensords8`      | —               | `thermostat.floor`         | `devices.types.thermostat`       | `on_off`, `range(temperature)`             | `float(temperature)`|
+| `aqua_protect`   | —               | `actuator.valve`           | `devices.types.openable.valve`   | `on_off`                                   | `event(water_leak)` |
+| `ds18b20`        | —               | `sensor.climate.basic`     | `devices.types.sensor.climate`   | —                                          | `float(temperature)`|
+| `dht_temp`       | —               | `sensor.climate.basic`     | `devices.types.sensor.climate`   | —                                          | `float(temperature)`|
+| `dht_humidity`   | —               | `sensor.climate.basic`     | `devices.types.sensor.climate`   | —                                          | `float(humidity)`   |
+| `adc`            | —               | `sensor.voltage.basic`     | `devices.types.sensor`           | —                                          | `float(voltage)`    |
+| `discrete`       | `"motion"`      | `sensor.motion.basic`      | `devices.types.sensor.motion`    | —                                          | `event(motion)`     |
+| `discrete`       | `"door"`        | `sensor.door.basic`        | `devices.types.sensor.door`      | —                                          | `event(open)`       |
+| `discrete`       | `"button"`      | `sensor.button.basic`      | `devices.types.sensor.button`    | —                                          | `event(button)`     |
+| `script`         | —               | —                          | **excluded**                     | —                                          | —                   |
+| `scene`          | —               | —                          | **excluded**                     | —                                          | —                   |
 
 ## Device ID format
 
@@ -77,11 +86,11 @@ Each device carries `custom_data` that Yandex echoes back on query/action:
 
 ## Offline behaviour
 
-| P4 relay status | HTTP response |
-|----------------|---------------|
-| `house_offline` | 200 + empty device list |
-| `timeout` | 200 + empty device list |
-| `relay_error` | 500 |
+| P4 relay status | HTTP response                       |
+|-----------------|-------------------------------------|
+| `house_offline` | 200 + empty device list             |
+| `timeout`       | 200 + empty device list             |
+| `relay_error`   | 500                                 |
 
 Returning an empty list (not 5xx) means Yandex shows devices as unavailable rather than reporting a skill error.
 

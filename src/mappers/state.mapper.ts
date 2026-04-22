@@ -27,6 +27,7 @@ import type {
   PropertyState,
   OnOffCapabilityStateValue,
   RangeCapabilityStateValue,
+  ModeCapabilityStateValue,
   ColorSettingCapabilityStateValue,
 } from '../types/yandex.js';
 import type { P4DeviceState, P4DeviceProperty } from '../types/internal.js';
@@ -171,6 +172,63 @@ function buildVoltagePropertyState(state: P4DeviceState): PropertyState | null {
   };
 }
 
+function buildFanSpeedModeState(state: P4DeviceState): CapabilityState | null {
+  const val = getNumeric(state, 'speed');
+  if (val === null) return null;
+  const speedNames = ['auto', 'low', 'medium', 'high', 'turbo'];
+  const modeValue = speedNames[Math.min(Math.round(val), speedNames.length - 1)] ?? 'auto';
+  return {
+    type: 'devices.capabilities.mode',
+    state: { instance: 'fan_speed', value: modeValue } satisfies ModeCapabilityStateValue,
+    ...withUpdatedAt(state, 'speed'),
+  };
+}
+
+function buildWaterLeakPropertyState(state: P4DeviceState): PropertyState | null {
+  const prop = getProp(state, 'alarm');
+  if (!prop) return null;
+  const isLeak = prop.value === true || prop.value === 1;
+  return {
+    type:  'devices.properties.event',
+    state: { instance: 'water_leak', value: isLeak ? 'leak' : 'dry' },
+    ...withUpdatedAt(state, 'alarm'),
+  };
+}
+
+function buildMotionEventState(state: P4DeviceState): PropertyState | null {
+  const prop = getProp(state, 'on');
+  if (!prop) return null;
+  const detected = prop.value === true || prop.value === 1;
+  return {
+    type:  'devices.properties.event',
+    state: { instance: 'motion', value: detected ? 'detected' : 'not_detected' },
+    ...withUpdatedAt(state, 'on'),
+  };
+}
+
+function buildOpenEventState(state: P4DeviceState): PropertyState | null {
+  const prop = getProp(state, 'on');
+  if (!prop) return null;
+  const opened = prop.value === true || prop.value === 1;
+  return {
+    type:  'devices.properties.event',
+    state: { instance: 'open', value: opened ? 'opened' : 'closed' },
+    ...withUpdatedAt(state, 'on'),
+  };
+}
+
+function buildButtonEventState(state: P4DeviceState): PropertyState | null {
+  const prop = getProp(state, 'click') ?? getProp(state, 'on');
+  if (!prop) return null;
+  const val = String(prop.value);
+  const mapped = val === '2' ? 'double_click' : val === '3' ? 'long_press' : 'click';
+  return {
+    type:  'devices.properties.event',
+    state: { instance: 'button', value: mapped },
+    ...withUpdatedAt(state, prop.key),
+  };
+}
+
 // ─── Per-kind state mapping ───────────────────────────────────────────────────
 
 interface DeviceStateResult {
@@ -181,6 +239,7 @@ interface DeviceStateResult {
 export function mapP4StateToYandex(
   kind:  P4DeviceKind,
   state: P4DeviceState,
+  meta?: { alisa_type?: string; semantics?: string },
 ): DeviceStateResult {
   const capabilities: CapabilityState[] = [];
   const properties:   PropertyState[]   = [];
@@ -231,12 +290,41 @@ export function mapP4StateToYandex(
 
     case 'aqua_protect':
       addCap(buildOnOffState(state));
+      addProp(buildWaterLeakPropertyState(state));
       break;
 
     case 'curtains':
       addCap(buildOnOffState(state));
       addCap(buildOpenPositionState(state));
       break;
+
+    case 'turkov':
+    case 'fancoil':
+      addCap(buildOnOffState(state));
+      addCap(buildFanSpeedModeState(state));
+      break;
+
+    case 'sensords8':
+      addCap(buildOnOffState(state));
+      addCap(buildTemperatureSetpointState(state));
+      addProp(buildTemperaturePropertyState(state));
+      break;
+
+    case 'switch':
+      addCap(buildOnOffState(state));
+      break;
+
+    case 'discrete': {
+      const t = ((meta?.alisa_type ?? meta?.semantics) ?? '').toLowerCase();
+      if (t.includes('motion')) {
+        addProp(buildMotionEventState(state));
+      } else if (t.includes('open') || t.includes('door') || t.includes('window')) {
+        addProp(buildOpenEventState(state));
+      } else if (t.includes('button')) {
+        addProp(buildButtonEventState(state));
+      }
+      break;
+    }
 
     case 'script':
     case 'scene':

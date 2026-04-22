@@ -28,6 +28,7 @@ import {
   queryP4DeviceState,
   P4RelayError,
   type P4DeviceKind,
+  type P4DeviceDescriptor,
 } from '../services/p4.service.js';
 import { parseYandexDeviceId } from '../mappers/device.mapper.js';
 import { mapP4StateToYandex } from '../mappers/state.mapper.js';
@@ -108,11 +109,11 @@ async function handleQuery(
   // ── Fetch P4 inventory for authoritative device typing ───────────────────────
   // DEFECT B fix: device kind and semantic profile are resolved from the server-side
   // inventory, never from custom_data.kind provided by Yandex in the request.
-  let inventoryMap = new Map<string, { kind: P4DeviceKind; semantics: string | undefined }>();
+  let inventoryMap = new Map<string, { kind: P4DeviceKind; semantics: string | undefined; meta: P4DeviceDescriptor['meta'] }>();
   try {
     const inventory = await fetchP4Inventory(house_id, request.log, request.requestId);
     inventoryMap = new Map(
-      inventory.devices.map((d) => [d.logical_device_id, { kind: d.kind, semantics: d.semantics }]),
+      inventory.devices.map((d) => [d.logical_device_id, { kind: d.kind, semantics: d.semantics, meta: d.meta }]),
     );
   } catch (err) {
     if (err instanceof P4RelayError) {
@@ -132,7 +133,7 @@ async function handleQuery(
   }
 
   // ── Classify each valid device using server-side inventory ───────────────────
-  type ClassifiedDevice = ValidDevice & { kind: P4DeviceKind };
+  type ClassifiedDevice = ValidDevice & { kind: P4DeviceKind; semantics: string | undefined; meta: P4DeviceDescriptor['meta'] };
   const classifiedDevices:   ClassifiedDevice[]   = [];
   const unclassifiedResults: DeviceQueryResult[]  = [];
 
@@ -161,7 +162,7 @@ async function handleQuery(
       continue;
     }
 
-    classifiedDevices.push({ ...dev, kind: descriptor.kind });
+    classifiedDevices.push({ ...dev, kind: descriptor.kind, semantics: descriptor.semantics, meta: descriptor.meta });
   }
 
   // ── Query P4 for owner-confirmed state ───────────────────────────────────────
@@ -207,7 +208,10 @@ async function handleQuery(
     }
 
     // kind is authoritative — from server-side inventory, not custom_data.
-    const { capabilities, properties } = mapP4StateToYandex(dev.kind, p4State);
+    const { capabilities, properties } = mapP4StateToYandex(dev.kind, p4State, {
+      ...dev.meta,
+      ...(dev.semantics !== undefined ? { semantics: dev.semantics } : {}),
+    });
     return { id: dev.yandexId, capabilities, properties };
   });
 

@@ -49,6 +49,7 @@ export type YandexDeviceType =
   | 'devices.types.sensor.button'
   | 'devices.types.openable'
   | 'devices.types.openable.curtain'
+  | 'devices.types.openable.valve'
   | 'devices.types.cooking'
   | 'devices.types.cooking.kettle'
   | 'devices.types.cooking.coffee_maker'
