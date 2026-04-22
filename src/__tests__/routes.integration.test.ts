@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
   validateBearerToken: vi.fn(),
 }));
 
-vi.mock('../../services/p4.service.js', () => ({
+vi.mock('../services/p4.service.js', () => ({
   fetchP4Inventory:   mocks.fetchP4Inventory,
   queryP4DeviceState: mocks.queryP4DeviceState,
   sendP4DeviceAction: mocks.sendP4DeviceAction,
@@ -34,8 +34,8 @@ vi.mock('../../services/p4.service.js', () => ({
   },
 }));
 
-vi.mock('../../services/token.service.js', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../services/token.service.js')>();
+vi.mock('../services/token.service.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../services/token.service.js')>();
   return { ...original, validateBearerToken: mocks.validateBearerToken };
 });
 
@@ -77,12 +77,12 @@ async function buildTestApp(): Promise<FastifyInstance> {
     brpop:  vi.fn().mockResolvedValue(null),   // notification worker (blocks)
   } as any);
 
-  const { default: requestIdPlugin } = await import('../../plugins/request-id.js');
-  const { default: metricsPlugin }   = await import('../../plugins/metrics.js');
+  const { default: requestIdPlugin } = await import('../plugins/request-id.js');
+  const { default: metricsPlugin }   = await import('../plugins/metrics.js');
   await app.register(requestIdPlugin);
   await app.register(metricsPlugin);
 
-  const { registerRoutes } = await import('../../routes/index.js');
+  const { registerRoutes } = await import('../routes/index.js');
   await registerRoutes(app);
 
   app.setNotFoundHandler((request, reply) => {
@@ -202,10 +202,10 @@ describe('GET /v1.0/user/devices (A3)', () => {
     mocks.fetchP4Inventory.mockResolvedValue({
       house_id: 'sb-00A3F2', version: 1, fetched_at: new Date().toISOString(),
       devices: [
-        { logical_device_id: 'relay-01', kind: 'relay',  name: 'Ceiling Light', online: true, board_id: 'b1' },
-        { logical_device_id: 'dimmer-01', kind: 'dimmer', name: 'Bedroom',      online: true, board_id: 'b1' },
-        { logical_device_id: 'ds-01',    kind: 'ds18b20', name: 'Temp Sensor',  online: true, board_id: 'b1' },
-        { logical_device_id: 'future-01', kind: 'unknown_future', name: 'X',   online: true, board_id: 'b1' },
+        { logical_device_id: 'relay-01',  kind: 'relay',           semantics: 'light', name: 'Ceiling Light', online: true, board_id: 'b1' },
+        { logical_device_id: 'dimmer-01', kind: 'dimmer',                              name: 'Bedroom',       online: true, board_id: 'b1' },
+        { logical_device_id: 'ds-01',     kind: 'ds18b20',                             name: 'Temp Sensor',   online: true, board_id: 'b1' },
+        { logical_device_id: 'future-01', kind: 'unknown_future' as any,               name: 'X',             online: true, board_id: 'b1' },
       ],
     });
     app = await buildTestApp();
@@ -224,8 +224,8 @@ describe('GET /v1.0/user/devices (A3)', () => {
     // 3 supported, 1 filtered
     expect(body.payload.devices).toHaveLength(3);
     expect(body.payload.devices[0].id).toBe('hi:sb-00A3F2:relay-01');
-    expect(body.payload.devices[0].type).toBe('devices.types.switch');
-    expect(body.payload.devices[2].type).toBe('devices.types.sensor');
+    expect(body.payload.devices[0].type).toBe('devices.types.light');
+    expect(body.payload.devices[2].type).toBe('devices.types.sensor.climate');
   });
 
   it('device IDs are stable: hi:{house}:{logical_device_id}', async () => {
@@ -239,7 +239,7 @@ describe('GET /v1.0/user/devices (A3)', () => {
   });
 
   it('200 empty list when P4 offline (house_offline error)', async () => {
-    const { P4RelayError } = await import('../../services/p4.service.js');
+    const { P4RelayError } = await import('../services/p4.service.js');
     mocks.fetchP4Inventory.mockRejectedValue(new P4RelayError('house_offline', 'offline'));
     const res = await app.inject({ method: 'GET', url: '/v1.0/user/devices', headers: { authorization: 'Bearer t' } });
     expect(res.statusCode).toBe(200);
@@ -247,7 +247,7 @@ describe('GET /v1.0/user/devices (A3)', () => {
   });
 
   it('200 empty list on relay timeout', async () => {
-    const { P4RelayError } = await import('../../services/p4.service.js');
+    const { P4RelayError } = await import('../services/p4.service.js');
     mocks.fetchP4Inventory.mockRejectedValue(new P4RelayError('timeout', 'timed out'));
     const res = await app.inject({ method: 'GET', url: '/v1.0/user/devices', headers: { authorization: 'Bearer t' } });
     expect(res.json().payload.devices).toHaveLength(0);
@@ -268,6 +268,12 @@ describe('POST /v1.0/user/devices/query (A4)', () => {
 
   beforeEach(async () => {
     mocks.validateBearerToken.mockResolvedValue(VALID_TOKEN);
+    mocks.fetchP4Inventory.mockResolvedValue({
+      house_id: 'sb-00A3F2', version: 1, fetched_at: new Date().toISOString(),
+      devices: [
+        { logical_device_id: 'relay-01', kind: 'relay', semantics: 'light', name: 'Ceiling Light', online: true, board_id: 'b1' },
+      ],
+    });
     mocks.queryP4DeviceState.mockResolvedValue({
       house_id: 'sb-00A3F2', fetched_at: new Date().toISOString(),
       devices: [{
@@ -316,7 +322,7 @@ describe('POST /v1.0/user/devices/query (A4)', () => {
   });
 
   it('DEVICE_UNREACHABLE when P4 relay times out', async () => {
-    const { P4RelayError } = await import('../../services/p4.service.js');
+    const { P4RelayError } = await import('../services/p4.service.js');
     mocks.queryP4DeviceState.mockRejectedValue(new P4RelayError('timeout', 'timed out'));
     const res = await app.inject({
       method: 'POST', url: '/v1.0/user/devices/query',
@@ -341,7 +347,7 @@ describe('POST /v1.0/user/devices/query (A4)', () => {
 
   it('always returns HTTP 200 even for device errors', async () => {
     // Yandex spec: per-device errors go in error_code, not HTTP status.
-    const { P4RelayError } = await import('../../services/p4.service.js');
+    const { P4RelayError } = await import('../services/p4.service.js');
     mocks.queryP4DeviceState.mockRejectedValue(new P4RelayError('house_offline', 'offline'));
     const res = await app.inject({
       method: 'POST', url: '/v1.0/user/devices/query',
@@ -366,6 +372,14 @@ describe('POST /v1.0/user/devices/action (A4)', () => {
 
   beforeEach(async () => {
     mocks.validateBearerToken.mockResolvedValue(VALID_TOKEN);
+    mocks.fetchP4Inventory.mockResolvedValue({
+      house_id: 'sb-00A3F2', version: 1, fetched_at: new Date().toISOString(),
+      devices: [
+        { logical_device_id: 'relay-01',  kind: 'relay',  semantics: 'light', name: 'Ceiling Light', online: true, board_id: 'b1' },
+        { logical_device_id: 'relay-02',  kind: 'relay',  semantics: 'light', name: 'Socket',        online: true, board_id: 'b1' },
+        { logical_device_id: 'dimmer-01', kind: 'dimmer',                     name: 'Bedroom',        online: true, board_id: 'b1' },
+      ],
+    });
     mocks.sendP4DeviceAction.mockResolvedValue({ request_id: 'r', house_id: 'h', device_id: 'd', status: 'ok' });
     app = await buildTestApp();
   });
@@ -395,7 +409,7 @@ describe('POST /v1.0/user/devices/action (A4)', () => {
   });
 
   it('200 ERROR DEVICE_UNREACHABLE on relay timeout', async () => {
-    const { P4RelayError } = await import('../../services/p4.service.js');
+    const { P4RelayError } = await import('../services/p4.service.js');
     mocks.sendP4DeviceAction.mockRejectedValue(new P4RelayError('timeout', 'timed out'));
     const res = await app.inject({
       method: 'POST', url: '/v1.0/user/devices/action',
@@ -611,7 +625,7 @@ describe('Replay scenario (A8)', () => {
     mocks.validateBearerToken.mockResolvedValue(VALID_TOKEN);
     mocks.fetchP4Inventory.mockResolvedValue({
       house_id: 'sb-00A3F2', version: 1, fetched_at: new Date().toISOString(),
-      devices: [{ logical_device_id: 'relay-01', kind: 'relay', name: 'Light', online: true, board_id: 'b1' }],
+      devices: [{ logical_device_id: 'relay-01', kind: 'relay', semantics: 'light', name: 'Light', online: true, board_id: 'b1' }],
     });
     app = await buildTestApp();
   });
