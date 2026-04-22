@@ -12,13 +12,13 @@ import {
   generateAccessToken,
   generateRefreshToken,
   generateAuthCode,
-} from '../../services/token.service.js';
+} from './token.service.js';
 import {
   computeTokenHmac,
   encryptToken,
   decryptToken,
   computeCodeHmac,
-} from '../../services/crypto.service.js';
+} from './crypto.service.js';
 
 // ─── Token generation ─────────────────────────────────────────────────────────
 

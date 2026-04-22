@@ -97,12 +97,13 @@ export async function validateBearerToken(
   const row = rows[0]!;
 
   const validated: ValidatedToken = {
-    access_token_id: row.id,
-    user_id:         row.hiOwnerAccountId,
-    house_id:        row.hiHouseId,
-    yandex_user_id:  row.yandexUserId,
-    scope:           '',
-    expires_at:      row.accessTokenExpiresAt,
+    access_token_id:   row.id,
+    access_token_hmac: hmac,      // retained for immediate cache invalidation on unlink
+    user_id:           row.hiOwnerAccountId,
+    house_id:          row.hiHouseId,
+    yandex_user_id:    row.yandexUserId,
+    scope:             '',
+    expires_at:        row.accessTokenExpiresAt,
   };
 
   // Populate L1 cache
@@ -271,8 +272,16 @@ export async function unlinkAccount(
        ${ip}::inet, ${requestId})
   `;
 
-  // Best-effort cache invalidation (HMAC not stored in ValidatedToken, let TTL expire).
-  app.log.info({ hiHouseId: token.house_id, requestId }, 'Account unlinked');
+  // Hard-delete the Redis cache entry so the token is rejected immediately,
+  // not after the cache TTL (up to 5 min) naturally expires.
+  // token.access_token_hmac is stored in ValidatedToken for exactly this purpose.
+  try {
+    await app.redis.del(cacheKey(token.access_token_hmac));
+  } catch (err) {
+    app.log.warn({ err, hiHouseId: token.house_id, requestId }, 'Failed to hard-invalidate Redis cache on unlink — token will expire naturally');
+  }
+
+  app.log.info({ hiHouseId: token.house_id, requestId }, 'Account unlinked and token cache invalidated');
 }
 
 // ─── Auth code ────────────────────────────────────────────────────────────────

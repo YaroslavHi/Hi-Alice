@@ -25,6 +25,10 @@ const envSchema = z.object({
   YANDEX_CLIENT_SECRET: z.string().min(16),
   HI_LOGIN_URL:         z.string().url(),
   SERVICE_BASE_URL:     z.string().url(),
+  // Comma-separated exact redirect URIs allowed in the OAuth callback.
+  // Defaults to the known Yandex Smart Home broker URI.
+  // Tightening this to an explicit allowlist prevents open-redirect attacks.
+  YANDEX_REDIRECT_URI_ALLOWLIST: z.string().default('https://social.yandex.net/broker/redirect'),
 
   // ── Token security (A2) ────────────────────────────────────────────────────
   // AES-256-GCM key: encrypt tokens at rest so they're retrievable.

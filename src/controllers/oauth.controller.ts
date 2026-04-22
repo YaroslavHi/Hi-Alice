@@ -70,11 +70,20 @@ function sendTokenError(reply: FastifyReply, error: OAuthTokenErrorResponse['err
   void reply.code(400).send({ error, ...(desc !== undefined ? { error_description: desc } : {}) });
 }
 
-function validateRedirectHost(uri: string): boolean {
-  try {
-    const u = new URL(uri);
-    return u.hostname.endsWith('yandex.ru') || u.hostname.endsWith('yandex.net');
-  } catch { return false; }
+/**
+ * Exact allowlist of permitted OAuth redirect URIs.
+ * Populated once at startup from the YANDEX_REDIRECT_URI_ALLOWLIST env var
+ * (comma-separated list of exact HTTPS URIs).
+ *
+ * Replaces the broad hostname suffix check (*.yandex.ru / *.yandex.net) which
+ * could permit open-redirect via attacker-controlled Yandex subdomains.
+ */
+const REDIRECT_URI_ALLOWLIST: ReadonlySet<string> = new Set(
+  env.YANDEX_REDIRECT_URI_ALLOWLIST.split(',').map((u) => u.trim()).filter(Boolean),
+);
+
+function validateRedirectUri(uri: string): boolean {
+  return REDIRECT_URI_ALLOWLIST.has(uri);
 }
 
 // ─── GET /oauth/authorize ─────────────────────────────────────────────────────
@@ -112,8 +121,8 @@ async function handleCallback(req: FastifyRequest, reply: FastifyReply): Promise
   }
   const { hi_user_id, hi_house_id, yandex_user_id, yandex_state, yandex_redirect_uri } = r.data;
 
-  if (!validateRedirectHost(yandex_redirect_uri)) {
-    req.log.warn({ host: new URL(yandex_redirect_uri).hostname }, 'Suspicious redirect_uri');
+  if (!validateRedirectUri(yandex_redirect_uri)) {
+    req.log.warn({ uri: yandex_redirect_uri }, 'redirect_uri not in allowlist — rejected');
     return reply.code(400).send('Invalid redirect_uri');
   }
 

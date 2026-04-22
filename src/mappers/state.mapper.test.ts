@@ -6,9 +6,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { mapP4StateToYandex } from '../../mappers/state.mapper.js';
-import type { P4DeviceState } from '../../types/internal.js';
-import type { P4DeviceKind } from '../../services/p4.service.js';
+import { mapP4StateToYandex } from './state.mapper.js';
+import type { P4DeviceState } from '../types/internal.js';
+import type { P4DeviceKind } from '../services/p4.service.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

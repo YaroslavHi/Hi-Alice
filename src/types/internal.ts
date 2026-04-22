@@ -61,12 +61,13 @@ export interface AliceAccountLink {
 // ─── Validated token payload (decoded, not raw string) ────────────────────────
 
 export interface ValidatedToken {
-  access_token_id: string;
-  user_id:         string;
-  house_id:        string;
-  yandex_user_id:  string;
-  scope:           string;
-  expires_at:      Date;
+  access_token_id:   string;
+  access_token_hmac: string;   // HMAC stored for immediate cache invalidation on unlink
+  user_id:           string;
+  house_id:          string;
+  yandex_user_id:    string;
+  scope:             string;
+  expires_at:        Date;
 }
 
 // ─── Request context (attached to Fastify request after auth) ─────────────────

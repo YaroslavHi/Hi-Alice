@@ -38,6 +38,7 @@ export type YandexDeviceType =
   | 'devices.types.dishwasher'
   | 'devices.types.iron'
   | 'devices.types.sensor'
+  | 'devices.types.sensor.climate'
   | 'devices.types.sensor.motion'
   | 'devices.types.sensor.door'
   | 'devices.types.sensor.window'

@@ -60,12 +60,19 @@ export type P4DeviceKind =
   | 'scene';
 
 export interface P4DeviceDescriptor {
-  logical_device_id: string;   // stable house-level ID
+  logical_device_id: string;       // stable house-level ID
   kind:              P4DeviceKind;
-  name:              string;   // user-configured display name
-  room?:             string;   // room name from house config
+  name:              string;       // user-configured display name
+  room?:             string;       // room name from house config
   online:            boolean;
-  board_id:          string;   // owning board
+  board_id:          string;       // owning board
+  /**
+   * Installer-provided semantics label. Required for ambiguous kinds (relay).
+   * Values: 'light' | 'socket' — determines Alice v1 semantic profile.
+   * Unrecognised or missing values cause the device to be excluded from
+   * discovery (safe default: never expose unclassified relays).
+   */
+  semantics?:        string;
   // Kind-specific metadata
   meta?: {
     // Dimmer / PWM

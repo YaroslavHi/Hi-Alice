@@ -10,8 +10,8 @@ import { describe, it, expect } from 'vitest';
 import {
   mapCapabilityAction,
   buildDeviceSetIntent,
-} from '../../mappers/action.mapper.js';
-import type { CapabilityActionValue } from '../../types/yandex.js';
+} from './action.mapper.js';
+import type { CapabilityActionValue } from '../types/yandex.js';
 
 // ─── on_off ───────────────────────────────────────────────────────────────────
 

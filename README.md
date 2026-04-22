@@ -318,43 +318,63 @@ curl -X POST https://alice.h-i.space/internal/p4/state-change \
 
 ```
 src/
-├── config/env.ts                # Zod-validated env config
+├── config/env.ts                # Zod-validated env config (fails fast at startup)
 ├── types/
-│   ├── yandex.ts                # Full Yandex Smart Home REST API types
-│   └── internal.ts              # Internal domain types + normalized intents
+│   ├── yandex.ts                # Yandex Smart Home REST API types
+│   └── internal.ts              # Internal domain types (ValidatedToken, intents, P4 state)
+├── semantics/
+│   └── profiles.ts              # Semantic profile resolution + v1 allowlist (CRITICAL)
 ├── db/
 │   ├── client.ts                # Fastify PostgreSQL plugin
-│   └── schema.sql               # 6-table OAuth schema
+│   └── schema.sql               # 3-table OAuth schema
 ├── plugins/
 │   ├── redis.ts                 # Fastify Redis plugin
-│   └── request-id.ts            # X-Request-Id propagation
+│   ├── request-id.ts            # X-Request-Id propagation
+│   └── metrics.ts               # Prometheus counters/histograms
 ├── middleware/
-│   └── auth.ts                  # Bearer token validation (Redis→DB→argon2)
+│   └── auth.ts                  # Bearer token validation (Redis L1 → DB HMAC)
 ├── services/
-│   ├── token.service.ts         # Token generation, hashing, validation, revocation
-│   ├── p4.service.ts            # P4 relay HTTP client (A7)
-│   └── notification.service.ts  # Yandex callback push with retry (A8)
+│   ├── token.service.ts         # Token lifecycle: issue, validate, rotate, unlink
+│   ├── crypto.service.ts        # AES-256-GCM encryption + HMAC-SHA256
+│   ├── p4.service.ts            # P4 relay HTTP client (inventory, state, action)
+│   └── notification.service.ts  # Yandex callback queue + retry worker
 ├── mappers/
-│   ├── device.mapper.ts         # P4 kinds → Yandex device types + capabilities (A3)
-│   ├── state.mapper.ts          # P4 state properties → Yandex state objects (A4)
-│   └── action.mapper.ts         # Yandex capability actions → P4 intents (A6)
+│   ├── device.mapper.ts         # Semantic profile → Yandex device (discovery)
+│   ├── state.mapper.ts          # P4 state properties → Yandex capability states
+│   └── action.mapper.ts         # Yandex capability actions → P4 DeviceSetIntent
 ├── controllers/
-│   ├── health.controller.ts     # GET/HEAD /v1.0
+│   ├── health.controller.ts     # GET|HEAD /v1.0
 │   ├── oauth.controller.ts      # /oauth/authorize, /callback, /token
-│   ├── unlink.controller.ts     # POST /v1.0/user/unlink (A5)
-│   ├── discovery.controller.ts  # GET /v1.0/user/devices (A3)
-│   ├── query.controller.ts      # POST /v1.0/user/devices/query (A4)
-│   ├── action.controller.ts     # POST /v1.0/user/devices/action (A6)
-│   └── p4-webhook.controller.ts # POST /internal/p4/state-change (A8)
+│   ├── unlink.controller.ts     # POST /v1.0/user/unlink
+│   ├── discovery.controller.ts  # GET /v1.0/user/devices
+│   ├── query.controller.ts      # POST /v1.0/user/devices/query
+│   ├── action.controller.ts     # POST /v1.0/user/devices/action
+│   ├── p4-webhook.controller.ts # POST /internal/p4/state-change
+│   └── metrics.controller.ts    # GET /metrics (Prometheus)
 ├── routes/index.ts              # Central route registration
 ├── app.ts                       # Fastify app factory
 └── index.ts                     # Entry point + graceful shutdown
+
+docs/
+├── architecture.md              # System design, semantic profiles, token model
+├── mapping.md                   # Complete P4 kind → profile → Yandex type matrix
+├── oauth.md                     # OAuth 2.0 flow details
+├── discovery.md                 # Discovery endpoint behavior
+├── notifications.md             # Notification queue and delivery
+├── observability.md             # Metrics and logging
+├── testing.md                   # Test strategy
+└── DEPLOYMENT.md                # Docker deployment guide
+
+scripts/
+└── migrate.js                   # Apply src/db/schema.sql to PostgreSQL
 ```
 
 ---
 
 ## Docs
 
-- [`docs/A2-oauth-foundation.md`](docs/A2-oauth-foundation.md) — OAuth flow, sequence diagrams, security properties
-- [`docs/A3-A8-stages.md`](docs/A3-A8-stages.md) — Discovery, Query, Action, Relay, Notifications
+- [docs/architecture.md](docs/architecture.md) — System design, semantic profiles, token security model
+- [docs/mapping.md](docs/mapping.md) — Complete P4 kind → semantic profile → Yandex type matrix
+- [docs/oauth.md](docs/oauth.md) — OAuth 2.0 flow and security properties
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Docker deployment guide
 
