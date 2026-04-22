@@ -284,13 +284,13 @@
     "id": "fn-cache-state",
     "type": "function",
     "z": "tab-p4relay",
-    "name": "Cache state",
-    "func": "// topic: demo/v1/server/devices/{device_id}/{field}\nconst parts = msg.topic.split('/');\nconst deviceId = parts[4];\nconst field    = parts[5];\nif (!deviceId || !field) return null;\n\nconst cache = flow.get('mqttState') || {};\nif (!cache[deviceId]) cache[deviceId] = { _updated: new Date().toISOString() };\n\nif (field === 'State') {\n  cache[deviceId].on = (msg.payload === 'True' || msg.payload === 'true' || msg.payload === true);\n} else if (field === 'TemperatureValue') {\n  const t = parseFloat(msg.payload);\n  if (!isNaN(t)) cache[deviceId].temperature = t;\n} else if (field === 'HumidityValue') {\n  const h = parseFloat(msg.payload);\n  if (!isNaN(h)) cache[deviceId].humidity = h;\n} else {\n  cache[deviceId][field] = msg.payload;\n}\ncache[deviceId]._updated = new Date().toISOString();\nflow.set('mqttState', cache);\nreturn null;",
+    "name": "Cache state + detect change",
+    "func": "// topic: demo/v1/server/devices/{device_id}/{field}\nconst parts = msg.topic.split('/');\nconst deviceId = parts[4];\nconst field    = parts[5];\nif (!deviceId || !field) return null;\n\nconst cache = flow.get('mqttState') || {};\nif (!cache[deviceId]) cache[deviceId] = { _updated: new Date().toISOString() };\n\n// Normalise incoming value\nlet newVal;\nif (field === 'State') {\n  newVal = (msg.payload === 'True' || msg.payload === 'true' || msg.payload === true);\n} else if (field === 'TemperatureValue') {\n  const t = parseFloat(msg.payload);\n  newVal = isNaN(t) ? undefined : t;\n} else if (field === 'HumidityValue') {\n  const h = parseFloat(msg.payload);\n  newVal = isNaN(h) ? undefined : h;\n} else {\n  newVal = msg.payload;\n}\nif (newVal === undefined) { flow.set('mqttState', cache); return null; }\n\n// Map MQTT field → cache / property key\nconst fieldKey = field === 'State'            ? 'on'\n  : field === 'TemperatureValue' ? 'temperature'\n  : field === 'HumidityValue'    ? 'humidity'\n  : field;\n\n// Compare with previous — skip if unchanged\nconst prev = cache[deviceId][fieldKey];\ncache[deviceId][fieldKey] = newVal;\ncache[deviceId]._updated  = new Date().toISOString();\nflow.set('mqttState', cache);\n\nif (prev === newVal) return null;\n\n// Build alice-adapter notification\nconst KIND = {\n  'switch_903858':    'relay',\n  'ds18b20_155881':   'ds18b20',\n  'ds18b20_959340':   'ds18b20',\n  'shtanddht_509766': 'dht_temp'\n};\nconst kind    = KIND[deviceId] || 'relay';\nconst houseId = env.get('HOUSE_ID')          || 'sb-00A3F2';\nconst baseUrl = env.get('ALICE_ADAPTER_URL') || 'http://alice-adapter:3000';\nconst token   = env.get('P4_RELAY_TOKEN')    || '';\n\nmsg.url     = baseUrl + '/internal/p4/house-state-change';\nmsg.method  = 'POST';\nmsg.headers = {\n  'Content-Type':  'application/json',\n  'Authorization': 'Bearer ' + token\n};\nmsg.payload = {\n  house_id:          houseId,\n  logical_device_id: deviceId,\n  kind:              kind,\n  online:            true,\n  properties: [{ key: fieldKey, value: newVal, updated_at: cache[deviceId]._updated }]\n};\nreturn msg;",
     "outputs": 1,
     "x": 480,
     "y": 60,
     "wires": [
-      []
+      ["http-state-change"]
     ]
   },
   {
@@ -437,5 +437,38 @@
     "caname": "",
     "servername": "",
     "verifyservercert": false
+  },
+  {
+    "id": "http-state-change",
+    "type": "http request",
+    "z": "tab-p4relay",
+    "name": "POST /internal/p4/house-state-change",
+    "method": "use",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "authType": "",
+    "x": 730,
+    "y": 60,
+    "wires": [
+      ["debug-state-change"]
+    ]
+  },
+  {
+    "id": "debug-state-change",
+    "type": "debug",
+    "z": "tab-p4relay",
+    "name": "State notify resp",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "x": 970,
+    "y": 60,
+    "wires": []
   }
 ]
