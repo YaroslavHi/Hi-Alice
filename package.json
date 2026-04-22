@@ -11,7 +11,8 @@
     "lint":     "eslint src --ext .ts",
     "test":     "vitest run",
     "test:cov": "vitest run --coverage",
-    "migrate":  "node scripts/migrate.js"
+    "migrate":  "node scripts/migrate.js",
+    "migrate:dev": "node -r dotenv/config scripts/migrate.js"
   },
   "dependencies": {
     "fastify":                "^4.28.1",
