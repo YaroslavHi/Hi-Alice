@@ -1,4 +1,4 @@
-# A3 — Device Discovery
+# Discovery — GET /v1.0/user/devices
 
 ## Endpoint
 
@@ -7,70 +7,85 @@ Authentication: `Authorization: Bearer {access_token}`
 
 ## Architecture Rule
 
-> "Cloud Proxy syncs device list with P4 on every GET /devices — no local copy."
-
 Every discovery request fetches live inventory from P4 relay. Zero caching of device list.
 
-## Supported Device Profiles (Allowlist)
+## Semantic profile resolution
 
-Only these P4 device kinds are exposed to Yandex. Any other kind is silently filtered.
-
-| P4 kind | Yandex type | Capabilities | Properties |
-|---------|-------------|--------------|------------|
-| `relay` | `devices.types.switch` | `on_off` | — |
-| `dimmer` | `devices.types.light` | `on_off`, `range(brightness)` | — |
-| `pwm` | `devices.types.light` | `on_off`, `range(brightness)` | — |
-| `pwm_rgb` | `devices.types.light` | `on_off`, `range(brightness)`, `color_setting(hsv)` | — |
-| `dali` | `devices.types.light` | `on_off`, `range(brightness)` | — |
-| `dali_group` | `devices.types.light` | `on_off`, `range(brightness)` | — |
-| `ds18b20` | `devices.types.sensor` | — | `float(temperature)` |
-| `dht_temp` | `devices.types.sensor` | — | `float(temperature)` |
-| `dht_humidity` | `devices.types.sensor` | — | `float(humidity)` |
-| `adc` | `devices.types.sensor` | — | `float(voltage)` |
-| `climate_control` | `devices.types.thermostat` | `on_off`, `range(temperature)` | — |
-| `aqua_protect` | `devices.types.openable` | `on_off` | — |
-| `curtains` | `devices.types.openable.curtain` | `on_off`, `range(open)` | — |
-| `script` | `devices.types.other` | `on_off` (write-only) | — |
-| `scene` | `devices.types.other` | `on_off` (write-only) | — |
-
-## Device ID Format
+Device type is resolved via a three-layer chain — **never** from raw hardware kind alone:
 
 ```
-hi:{hi_house_id}:{logical_device_id}
+P4DeviceDescriptor.kind + .semantics
+         │
+  resolveSemanticProfile()   (src/semantics/profiles.ts)
+         │
+  SemanticProfileId | null
+         │
+  V1_ALLOWED_PROFILES check
+         │
+  PROFILE_YANDEX_TYPE lookup (src/mappers/device.mapper.ts)
+         │
+  YandexDeviceType
 ```
 
-- **Stable**: logical_device_id is provisioned at setup, never changes
-- **Opaque to Yandex**: Yandex stores and echoes it back verbatim
-- **Parseable**: split on first two `:` → house + device
+Devices that resolve to `null` (no approved v1 profile) are **silently filtered** — never returned to Yandex.
 
-## Custom Data Payload
+## Approved v1 profiles
 
-Each device carries `custom_data` that Yandex echoes back in query/action requests:
+| P4 kind | semantics label | Semantic Profile | Yandex Type | Capabilities | Properties |
+|---------|-----------------|-----------------|-------------|--------------|------------|
+| `relay` | `"light"` | `light.relay` | `devices.types.light` | `on_off` | — |
+| `relay` | `"socket"` | `socket.relay` | `devices.types.socket` | `on_off` | — |
+| `relay` | *(none)* | — | **excluded** | — | — |
+| `dimmer` | — | `light.dimmer` | `devices.types.light` | `on_off`, `range(brightness)` | — |
+| `pwm` | — | `light.dimmer` | `devices.types.light` | `on_off`, `range(brightness)` | — |
+| `pwm_rgb` | — | `light.dimmer` | `devices.types.light` | `on_off`, `range(brightness)`, `color_setting(hsv)` | — |
+| `dali` | — | `light.dimmer` | `devices.types.light` | `on_off`, `range(brightness)` | — |
+| `dali_group` | — | `light.dimmer` | `devices.types.light` | `on_off`, `range(brightness)` | — |
+| `curtains` | — | `curtain.cover` | `devices.types.openable.curtain` | `on_off`, `range(open)` | — |
+| `climate_control` | — | `climate.thermostat.basic` | `devices.types.thermostat` | `on_off`, `range(temperature)` | — |
+| `ds18b20` | — | `sensor.climate.basic` | `devices.types.sensor.climate` | — | `float(temperature)` |
+| `dht_temp` | — | `sensor.climate.basic` | `devices.types.sensor.climate` | — | `float(temperature)` |
+| `dht_humidity` | — | `sensor.climate.basic` | `devices.types.sensor.climate` | — | `float(humidity)` |
+| `adc` | — | — | **excluded** | — | — |
+| `aqua_protect` | — | — | **excluded** | — | — |
+| `script` | — | — | **excluded** | — | — |
+| `scene` | — | — | **excluded** | — | — |
+
+## Device ID format
+
+```
+hi:{house_id}:{logical_device_id}
+```
+
+Stable: `logical_device_id` is provisioned at setup and never changes. Yandex stores and echoes it back verbatim in query/action requests.
+
+## custom_data
+
+Each device carries `custom_data` that Yandex echoes back on query/action:
 
 ```json
 {
   "custom_data": {
     "house_id":          "sb-00A3F2",
     "logical_device_id": "relay-42",
-    "board_id":          "board-01",
-    "kind":              "relay"
+    "board_id":          "board-01"
   }
 }
 ```
 
-The `kind` field lets the query endpoint map P4 state without a second inventory fetch.
+`kind` is **not** included in `custom_data`. The server resolves kind and semantic profile from P4 inventory on every query and action request (never trusts Yandex-controlled fields for type decisions).
 
-## Offline Behaviour
+## Offline behaviour
 
-| P4 Relay status | HTTP response |
+| P4 relay status | HTTP response |
 |----------------|---------------|
 | `house_offline` | 200 + empty device list |
 | `timeout` | 200 + empty device list |
 | `relay_error` | 500 |
 
-Returning empty list (not 5xx) means Yandex shows devices as unavailable rather than reporting a skill error.
+Returning an empty list (not 5xx) means Yandex shows devices as unavailable rather than reporting a skill error.
 
-## Example Response
+## Example response
 
 ```json
 {
@@ -80,15 +95,24 @@ Returning empty list (not 5xx) means Yandex shows devices as unavailable rather 
     "devices": [
       {
         "id": "hi:sb-00A3F2:relay-42",
-        "name": "Living Room Light",
-        "type": "devices.types.switch",
-        "room": "Living Room",
+        "name": "Люстра в гостиной",
+        "type": "devices.types.light",
+        "room": "Гостиная",
         "capabilities": [
-          { "type": "devices.capabilities.on_off", "retrievable": true, "reportable": true, "parameters": { "split": false } }
+          {
+            "type": "devices.capabilities.on_off",
+            "retrievable": true,
+            "reportable": true,
+            "parameters": { "split": false }
+          }
         ],
         "properties": [],
         "device_info": { "manufacturer": "HI SmartBox", "model": "relay" },
-        "custom_data": { "house_id": "sb-00A3F2", "logical_device_id": "relay-42", "board_id": "board-01" }
+        "custom_data": {
+          "house_id": "sb-00A3F2",
+          "logical_device_id": "relay-42",
+          "board_id": "board-01"
+        }
       }
     ]
   }
